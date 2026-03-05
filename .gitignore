@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.pids/
+.vscode/
+
+# News vault content
+news-vault/*/
+
+# Admin local data
+.admin/
+
+.env
