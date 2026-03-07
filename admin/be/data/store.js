@@ -10,6 +10,10 @@ let NEWS_VAULT;
 export function initStore(baseDir) {
   NEWS_VAULT = path.join(baseDir, 'news-vault');
   if (!fs.existsSync(NEWS_VAULT)) fs.mkdirSync(NEWS_VAULT, { recursive: true });
+  const publishedDir = path.join(NEWS_VAULT, 'published');
+  const draftsDir = path.join(NEWS_VAULT, 'drafts');
+  if (!fs.existsSync(publishedDir)) fs.mkdirSync(publishedDir, { recursive: true });
+  if (!fs.existsSync(draftsDir)) fs.mkdirSync(draftsDir, { recursive: true });
 }
 
 export function getNewsVault() {
@@ -19,19 +23,25 @@ export function getNewsVault() {
 export function getAllArticles() {
   if (!fs.existsSync(NEWS_VAULT)) return [];
 
-  const dirs = fs.readdirSync(NEWS_VAULT, { withFileTypes: true })
-    .filter(d => d.isDirectory())
-    .map(d => d.name);
-
   const articles = [];
-  for (const dir of dirs) {
-    const mdPath = path.join(NEWS_VAULT, dir, 'news.md');
-    if (!fs.existsSync(mdPath)) continue;
-    const content = fs.readFileSync(mdPath, 'utf-8');
-    const article = parseMarkdown(content);
-    if (article) {
-      article.slug = dir;
-      articles.push(article);
+  const subdirs = ['published', 'drafts'];
+  for (const subdir of subdirs) {
+    const subPath = path.join(NEWS_VAULT, subdir);
+    if (!fs.existsSync(subPath)) continue;
+    
+    const dirs = fs.readdirSync(subPath, { withFileTypes: true })
+      .filter(d => d.isDirectory())
+      .map(d => d.name);
+
+    for (const dir of dirs) {
+      const mdPath = path.join(subPath, dir, 'newspost.md');
+      if (!fs.existsSync(mdPath)) continue;
+      const content = fs.readFileSync(mdPath, 'utf-8');
+      const article = parseMarkdown(content);
+      if (article) {
+        article.slug = dir;
+        articles.push(article);
+      }
     }
   }
 
@@ -45,47 +55,83 @@ export function getArticle(id) {
 }
 
 export function getArticleBySlug(slug) {
-  const mdPath = path.join(NEWS_VAULT, slug, 'news.md');
-  if (!fs.existsSync(mdPath)) return null;
-  const content = fs.readFileSync(mdPath, 'utf-8');
-  const article = parseMarkdown(content);
-  if (article) article.slug = slug;
-  return article;
+  const subdirs = ['published', 'drafts'];
+  for (const subdir of subdirs) {
+    const mdPath = path.join(NEWS_VAULT, subdir, slug, 'newspost.md');
+    if (!fs.existsSync(mdPath)) continue;
+    const content = fs.readFileSync(mdPath, 'utf-8');
+    const article = parseMarkdown(content);
+    if (article) article.slug = slug;
+    return article;
+  }
+  return null;
 }
 
 export function saveArticle(article) {
-  const slug = article.slug || slugify(article.title);
-  const articleDir = path.join(NEWS_VAULT, slug);
-  const imagesDir = path.join(articleDir, 'images');
+  let slug = article.slug;
+  if (!slug) {
+    const date = new Date(article.publishDate || article.createdAt);
+    const dateStr = date.toISOString().split('T')[0];
+    const titleSlug = slugify(article.title);
+    slug = `${dateStr}-${titleSlug}`;
+  }
+
+  const status = article.published ? 'published' : 'drafts';
+  const articleDir = path.join(NEWS_VAULT, status, slug);
+  const mediaDir = path.join(articleDir, 'media');
 
   if (!fs.existsSync(articleDir)) fs.mkdirSync(articleDir, { recursive: true });
-  if (!fs.existsSync(imagesDir)) fs.mkdirSync(imagesDir, { recursive: true });
+  if (!fs.existsSync(mediaDir)) fs.mkdirSync(mediaDir, { recursive: true });
 
   article.slug = slug;
   const md = articleToMarkdown(article);
-  fs.writeFileSync(path.join(articleDir, 'news.md'), md);
+  fs.writeFileSync(path.join(articleDir, 'newspost.md'), md);
   return article;
 }
 
 export function deleteArticle(id) {
   const article = getArticle(id);
   if (!article) return false;
-  const articleDir = path.join(NEWS_VAULT, article.slug);
-  if (fs.existsSync(articleDir)) {
-    fs.rmSync(articleDir, { recursive: true });
+  const subdirs = ['published', 'drafts'];
+  for (const subdir of subdirs) {
+    const articleDir = path.join(NEWS_VAULT, subdir, article.slug);
+    if (fs.existsSync(articleDir)) {
+      fs.rmSync(articleDir, { recursive: true });
+      return true;
+    }
+  }
+  return false;
+}
+
+export function removeDraft(slug) {
+  const draftDir = path.join(NEWS_VAULT, 'drafts', slug);
+  if (fs.existsSync(draftDir)) {
+    fs.rmSync(draftDir, { recursive: true });
+    return true;
+  }
+  return false;
+}
+
+export function removePublished(slug) {
+  const publishedDir = path.join(NEWS_VAULT, 'published', slug);
+  if (fs.existsSync(publishedDir)) {
+    fs.rmSync(publishedDir, { recursive: true });
     return true;
   }
   return false;
 }
 
 export function getArticleImagesDir(articleSlugOrId) {
-
-  let dir = path.join(NEWS_VAULT, articleSlugOrId, 'images');
-  if (fs.existsSync(dir)) return dir;
+  const subdirs = ['published', 'drafts'];
+  for (const subdir of subdirs) {
+    const dir = path.join(NEWS_VAULT, subdir, articleSlugOrId, 'media');
+    if (fs.existsSync(dir)) return dir;
+  }
 
   const article = getArticle(articleSlugOrId);
   if (article) {
-    dir = path.join(NEWS_VAULT, article.slug, 'images');
+    const status = article.published ? 'published' : 'drafts';
+    const dir = path.join(NEWS_VAULT, status, article.slug, 'media');
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
     return dir;
   }
