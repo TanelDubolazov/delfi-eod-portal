@@ -4,10 +4,13 @@ import {
   getArticle,
   saveArticle,
   deleteArticle,
+  removeDraft,
+  removePublished,
 } from '../data/store.js';
 
 // TODO: soft-lock system
 // TODO: auth middleware
+// TODO: auto-save for drafts
 
 export const articlesRouter = Router();
 
@@ -73,6 +76,7 @@ articlesRouter.post('/:id/publish', (req, res) => {
   article.publishDate = new Date().toISOString();
   article.updatedAt = new Date().toISOString();
   saveArticle(article);
+  removeDraft(article.slug);
   res.json(article);
 });
 
@@ -82,5 +86,6 @@ articlesRouter.post('/:id/unpublish', (req, res) => {
   article.published = false;
   article.updatedAt = new Date().toISOString();
   saveArticle(article);
+  removePublished(article.slug);
   res.json(article);
 });

@@ -103,6 +103,24 @@ export function deleteArticle(id) {
   return false;
 }
 
+export function removeDraft(slug) {
+  const draftDir = path.join(NEWS_VAULT, 'drafts', slug);
+  if (fs.existsSync(draftDir)) {
+    fs.rmSync(draftDir, { recursive: true });
+    return true;
+  }
+  return false;
+}
+
+export function removePublished(slug) {
+  const publishedDir = path.join(NEWS_VAULT, 'published', slug);
+  if (fs.existsSync(publishedDir)) {
+    fs.rmSync(publishedDir, { recursive: true });
+    return true;
+  }
+  return false;
+}
+
 export function getArticleImagesDir(articleSlugOrId) {
   const subdirs = ['published', 'drafts'];
   for (const subdir of subdirs) {
