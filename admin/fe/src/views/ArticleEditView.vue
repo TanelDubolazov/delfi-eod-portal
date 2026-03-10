@@ -57,8 +57,6 @@ function setupMarkdownEditor() {
 }
 
 onMounted(async () => {
-  setupMarkdownEditor();
-
   if (!isNew.value && articleId.value) {
     try {
       const { data } = await api.get(`/articles/${articleId.value}`);
@@ -70,11 +68,13 @@ onMounted(async () => {
       form.value.author = data.author || '';
       form.value.published = data.published;
       form.value.publishDate = data.publishDate?.slice(0, 16) || '';
-      markdownEditor.value?.value(data.body || '');
+      // populate textarea before EasyMDE init so CodeMirror gets the content
+      if (markdownInput.value) markdownInput.value.value = data.body || '';
     } catch (err: any) {
       error.value = 'Failed to load article.';
     }
   }
+  setupMarkdownEditor();
 });
 
 onUnmounted(() => {
