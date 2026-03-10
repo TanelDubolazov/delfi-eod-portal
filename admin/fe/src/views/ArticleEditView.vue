@@ -1,9 +1,8 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue';
+import { ref, onMounted, onUnmounted, computed } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
-import { useEditor, EditorContent } from '@tiptap/vue-3';
-import StarterKit from '@tiptap/starter-kit';
-import Image from '@tiptap/extension-image';
+import EasyMDE from 'easymde';
+import 'easymde/dist/easymde.min.css';
 import api from '../api';
 
 const router = useRouter();
@@ -14,6 +13,8 @@ const saving = ref(false);
 const error = ref('');
 
 const articleSlug = ref('');
+const markdownInput = ref<HTMLTextAreaElement | null>(null);
+const markdownEditor = ref<EasyMDE | null>(null);
 
 const form = ref({
   title: '',
@@ -25,16 +26,35 @@ const form = ref({
   publishDate: new Date().toISOString().slice(0, 16),
 });
 
-const editor = useEditor({
-  extensions: [
-    StarterKit,
-    Image.configure({ inline: false, allowBase64: true }),
-  ],
-  content: '',
-  onUpdate: ({ editor: e }) => {
-    form.value.body = e.getHTML();
-  },
-});
+function setupMarkdownEditor() {
+  if (!markdownInput.value) return;
+
+  markdownEditor.value = new EasyMDE({
+    element: markdownInput.value,
+    spellChecker: false,
+    status: false,
+    minHeight: '300px',
+    toolbar: [
+      'bold',
+      'italic',
+      'heading-2',
+      'heading-3',
+      '|',
+      'unordered-list',
+      'ordered-list',
+      'quote',
+      '|',
+      'link',
+      'preview',
+      'side-by-side',
+      'fullscreen',
+    ],
+  });
+
+  markdownEditor.value.codemirror.on('change', () => {
+    form.value.body = markdownEditor.value?.value() || '';
+  });
+}
 
 onMounted(async () => {
   if (!isNew.value && articleId.value) {
@@ -48,11 +68,18 @@ onMounted(async () => {
       form.value.author = data.author || '';
       form.value.published = data.published;
       form.value.publishDate = data.publishDate?.slice(0, 16) || '';
-      editor.value?.commands.setContent(data.body || '');
+      // populate textarea before EasyMDE init so CodeMirror gets the content
+      if (markdownInput.value) markdownInput.value.value = data.body || '';
     } catch (err: any) {
       error.value = 'Failed to load article.';
     }
   }
+  setupMarkdownEditor();
+});
+
+onUnmounted(() => {
+  markdownEditor.value?.toTextArea();
+  markdownEditor.value = null;
 });
 
 async function save() {
@@ -65,6 +92,8 @@ async function save() {
   error.value = '';
 
   try {
+    form.value.body = markdownEditor.value?.value() || form.value.body;
+
     const payload = {
       title: form.value.title,
       lead: form.value.lead,
@@ -80,10 +109,10 @@ async function save() {
     if (isNew.value) {
       const { data } = await api.post('/articles', payload);
       articleSlug.value = data.slug;
-      router.replace(`/articles/${data.id}`);
     } else {
       await api.put(`/articles/${articleId.value}`, payload);
     }
+    router.push('/');
   } catch (err: any) {
     error.value = err.response?.data?.error || 'Save failed';
   } finally {
@@ -130,7 +159,9 @@ async function uploadImage(event: Event, context: 'lead' | 'article') {
     if (context === 'lead') {
       form.value.leadImage = `http://localhost:3001${data.url}`;
     } else {
-      editor.value?.chain().focus().setImage({ src: `http://localhost:3001${data.url}` }).run();
+      const markdownImage = `\n![${file.name.replace(/\.[^.]+$/, '')}](http://localhost:3001${data.url})\n`;
+      markdownEditor.value?.codemirror.replaceSelection(markdownImage);
+      form.value.body = markdownEditor.value?.value() || form.value.body;
     }
   } catch {
     error.value = 'Image upload failed';
@@ -190,49 +221,13 @@ async function uploadImage(event: Event, context: 'lead' | 'article') {
 
       <div class="form-group">
         <label>Body</label>
-        <div class="editor-toolbar" v-if="editor">
-          <button
-            :class="{ active: editor.isActive('bold') }"
-            @click="editor.chain().focus().toggleBold().run()"
-            title="Bold"
-          ><b>B</b></button>
-          <button
-            :class="{ active: editor.isActive('italic') }"
-            @click="editor.chain().focus().toggleItalic().run()"
-            title="Italic"
-          ><i>I</i></button>
-          <button
-            :class="{ active: editor.isActive('heading', { level: 2 }) }"
-            @click="editor.chain().focus().toggleHeading({ level: 2 }).run()"
-            title="Heading"
-          >H2</button>
-          <button
-            :class="{ active: editor.isActive('heading', { level: 3 }) }"
-            @click="editor.chain().focus().toggleHeading({ level: 3 }).run()"
-            title="Heading 3"
-          >H3</button>
-          <button
-            :class="{ active: editor.isActive('bulletList') }"
-            @click="editor.chain().focus().toggleBulletList().run()"
-            title="Bullet List"
-          >• List</button>
-          <button
-            :class="{ active: editor.isActive('orderedList') }"
-            @click="editor.chain().focus().toggleOrderedList().run()"
-            title="Ordered List"
-          >1. List</button>
-          <button
-            :class="{ active: editor.isActive('blockquote') }"
-            @click="editor.chain().focus().toggleBlockquote().run()"
-            title="Quote"
-          >" Quote</button>
-          <span class="toolbar-divider"></span>
+        <div class="md-toolbar">
           <label class="toolbar-btn" title="Insert Image">
             📷 Image
             <input type="file" accept="image/*" @change="uploadImage($event, 'article')" hidden />
           </label>
         </div>
-        <EditorContent :editor="editor" class="editor-content" />
+        <textarea ref="markdownInput" class="markdown-input"></textarea>
       </div>
     </div>
   </div>
@@ -309,19 +304,11 @@ async function uploadImage(event: Event, context: 'lead' | 'article') {
   font-size: 13px;
 }
 
-/* Editor */
-.editor-toolbar {
+.md-toolbar {
   display: flex;
-  gap: 4px;
-  padding: 8px;
-  border: 1px solid var(--border);
-  border-bottom: none;
-  border-radius: var(--radius) var(--radius) 0 0;
-  background: #f9fafb;
-  flex-wrap: wrap;
+  margin-bottom: 8px;
 }
 
-.editor-toolbar button,
 .toolbar-btn {
   padding: 6px 10px;
   font-size: 13px;
@@ -333,65 +320,12 @@ async function uploadImage(event: Event, context: 'lead' | 'article') {
   align-items: center;
 }
 
-.editor-toolbar button:hover,
 .toolbar-btn:hover {
   background: var(--border);
 }
 
-.editor-toolbar button.active {
-  background: var(--primary);
-  color: white;
-}
-
-.toolbar-divider {
-  width: 1px;
-  background: var(--border);
-  margin: 0 4px;
-}
-
-.editor-content {
-  border: 1px solid var(--border);
-  border-radius: 0 0 var(--radius) var(--radius);
+.markdown-input {
   min-height: 300px;
-}
-
-.editor-content :deep(.tiptap) {
-  padding: 16px;
-  min-height: 300px;
-  outline: none;
-}
-
-.editor-content :deep(.tiptap p) {
-  margin-bottom: 12px;
-}
-
-.editor-content :deep(.tiptap h2) {
-  font-size: 22px;
-  margin: 20px 0 10px;
-}
-
-.editor-content :deep(.tiptap h3) {
-  font-size: 18px;
-  margin: 16px 0 8px;
-}
-
-.editor-content :deep(.tiptap img) {
-  max-width: 100%;
-  border-radius: var(--radius);
-  margin: 12px 0;
-}
-
-.editor-content :deep(.tiptap blockquote) {
-  border-left: 3px solid var(--primary);
-  padding-left: 16px;
-  color: var(--text-secondary);
-  margin: 12px 0;
-}
-
-.editor-content :deep(.tiptap ul),
-.editor-content :deep(.tiptap ol) {
-  padding-left: 24px;
-  margin-bottom: 12px;
 }
 
 .error-msg {

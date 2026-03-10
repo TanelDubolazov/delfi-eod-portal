@@ -1,12 +1,11 @@
-import { Router } from 'express';
+import { Router } from "express";
 import {
   getAllArticles,
   getArticle,
   saveArticle,
   deleteArticle,
-  removeDraft,
-  removePublished,
-} from '../data/store.js';
+  moveArticleFolder,
+} from "../data/store.js";
 
 // TODO: soft-lock system
 // TODO: auth middleware
@@ -14,27 +13,27 @@ import {
 
 export const articlesRouter = Router();
 
-articlesRouter.get('/', (req, res) => {
+articlesRouter.get("/", (req, res) => {
   const articles = getAllArticles();
   res.json(articles);
 });
 
-articlesRouter.get('/:id', (req, res) => {
+articlesRouter.get("/:id", (req, res) => {
   const article = getArticle(req.params.id);
-  if (!article) return res.status(404).json({ error: 'Article not found' });
+  if (!article) return res.status(404).json({ error: "Article not found" });
   res.json(article);
 });
 
-articlesRouter.post('/', (req, res) => {
+articlesRouter.post("/", (req, res) => {
   const { title, lead, leadImage, body, images, author } = req.body;
-  if (!title) return res.status(400).json({ error: 'Title is required' });
+  if (!title) return res.status(400).json({ error: "Title is required" });
 
   const article = {
     id: crypto.randomUUID(),
     title,
-    lead: lead || '',
+    lead: lead || "",
     leadImage: leadImage || null,
-    body: body || '',
+    body: body || "",
     images: images || [],
     author: author || null,
     published: false,
@@ -47,9 +46,9 @@ articlesRouter.post('/', (req, res) => {
   res.status(201).json(article);
 });
 
-articlesRouter.put('/:id', (req, res) => {
+articlesRouter.put("/:id", (req, res) => {
   const existing = getArticle(req.params.id);
-  if (!existing) return res.status(404).json({ error: 'Article not found' });
+  if (!existing) return res.status(404).json({ error: "Article not found" });
 
   const updated = {
     ...existing,
@@ -63,29 +62,29 @@ articlesRouter.put('/:id', (req, res) => {
   res.json(updated);
 });
 
-articlesRouter.delete('/:id', (req, res) => {
+articlesRouter.delete("/:id", (req, res) => {
   const success = deleteArticle(req.params.id);
-  if (!success) return res.status(404).json({ error: 'Article not found' });
+  if (!success) return res.status(404).json({ error: "Article not found" });
   res.json({ success: true });
 });
 
-articlesRouter.post('/:id/publish', (req, res) => {
+articlesRouter.post("/:id/publish", (req, res) => {
   const article = getArticle(req.params.id);
-  if (!article) return res.status(404).json({ error: 'Article not found' });
+  if (!article) return res.status(404).json({ error: "Article not found" });
   article.published = true;
   article.publishDate = new Date().toISOString();
   article.updatedAt = new Date().toISOString();
+  moveArticleFolder(article.slug, "published");
   saveArticle(article);
-  removeDraft(article.slug);
   res.json(article);
 });
 
-articlesRouter.post('/:id/unpublish', (req, res) => {
+articlesRouter.post("/:id/unpublish", (req, res) => {
   const article = getArticle(req.params.id);
-  if (!article) return res.status(404).json({ error: 'Article not found' });
+  if (!article) return res.status(404).json({ error: "Article not found" });
   article.published = false;
   article.updatedAt = new Date().toISOString();
+  moveArticleFolder(article.slug, "drafts");
   saveArticle(article);
-  removePublished(article.slug);
   res.json(article);
 });

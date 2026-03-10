@@ -51,36 +51,34 @@ cd fe && npm run dev
 
 ## API
 
-| Method | Endpoint                     | Description           |
-| ------ | ---------------------------- | --------------------- |
-| GET    | `/api/health`                | Health check          |
-| GET    | `/api/articles`              | List all articles     |
-| GET    | `/api/articles/:id`          | Get article by ID     |
-| POST   | `/api/articles`              | Create article        |
-| PUT    | `/api/articles/:id`          | Update article        |
-| PATCH  | `/api/articles/:id/publish`  | Publish article       |
-| PATCH  | `/api/articles/:id/unpublish`| Unpublish article     |
-| DELETE | `/api/articles/:id`          | Delete article        |
-| POST   | `/api/images/upload`         | Upload image          |
-| GET    | `/api/images/:slug`          | List article images   |
-| DELETE | `/api/images/:slug/:filename`| Delete image          |
+| Method | Endpoint                      | Description         |
+| ------ | ----------------------------- | ------------------- |
+| GET    | `/api/health`                 | Health check        |
+| GET    | `/api/articles`               | List all articles   |
+| GET    | `/api/articles/:id`           | Get article by ID   |
+| POST   | `/api/articles`               | Create article      |
+| PUT    | `/api/articles/:id`           | Update article      |
+| PATCH  | `/api/articles/:id/publish`   | Publish article     |
+| PATCH  | `/api/articles/:id/unpublish` | Unpublish article   |
+| DELETE | `/api/articles/:id`           | Delete article      |
+| POST   | `/api/images/upload`          | Upload image        |
+| GET    | `/api/images/:slug`           | List article images |
+| DELETE | `/api/images/:slug/:filename` | Delete image        |
 
 ## Storage format
 
-Each article lives in `news-vault/<slug>/news.md`:
+Each article lives in `news-vault/<status>/<slug>/newspost.md`:
 
 ```
 ---
-{
-  "id": "uuid",
-  "title": "Article title",
-  "published": false,
-  "publishDate": "2026-03-05T...",
-  ...
-}
+title: "Article title"
+description: "Short summary"
+pubDate: 2026-03-05T10:30:00.000Z
+updatedDate: 2026-03-05T10:30:00.000Z
+heroImage: "./media/lead.jpg"
 ---
 
-<p>HTML body content</p>
+Markdown body content
 ```
 
-Images are stored alongside in `news-vault/<slug>/images/`.
+Images are stored alongside in `news-vault/<status>/<slug>/media/`.

@@ -93,4 +93,14 @@ input:focus, textarea:focus {
   border-color: var(--primary);
   box-shadow: 0 0 0 3px rgba(26, 86, 219, 0.1);
 }
+
+/* global input/textarea styles above break CodeMirror's hidden textarea */
+.CodeMirror textarea,
+.CodeMirror textarea:focus {
+  width: auto;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+}
 </style>
