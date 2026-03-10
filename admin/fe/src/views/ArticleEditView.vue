@@ -109,10 +109,10 @@ async function save() {
     if (isNew.value) {
       const { data } = await api.post('/articles', payload);
       articleSlug.value = data.slug;
-      router.replace(`/articles/${data.id}`);
     } else {
       await api.put(`/articles/${articleId.value}`, payload);
     }
+    router.push('/');
   } catch (err: any) {
     error.value = err.response?.data?.error || 'Save failed';
   } finally {
