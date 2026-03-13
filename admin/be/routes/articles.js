@@ -9,7 +9,6 @@ import {
 
 // TODO: soft-lock system
 // TODO: auth middleware
-// TODO: auto-save for drafts
 
 export const articlesRouter = Router();
 
@@ -60,6 +59,22 @@ articlesRouter.put("/:id", (req, res) => {
 
   saveArticle(updated);
   res.json(updated);
+});
+
+articlesRouter.put("/:id/autosave", (req, res) => {
+  const existing = getArticle(req.params.id);
+  if (!existing) return res.status(404).json({ error: "Article not found" });
+
+  const updated = {
+    ...existing,
+    ...req.body,
+    id: existing.id,
+    createdAt: existing.createdAt,
+    updatedAt: existing.updatedAt,
+  };
+
+  saveArticle(updated);
+  res.json({ autosavedAt: new Date().toISOString() });
 });
 
 articlesRouter.delete("/:id", (req, res) => {
