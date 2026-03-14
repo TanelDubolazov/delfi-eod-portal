@@ -8,8 +8,6 @@ import {
 } from "../data/store.js";
 
 // TODO: soft-lock system
-// TODO: auth middleware
-// TODO: auto-save for drafts
 
 export const articlesRouter = Router();
 
