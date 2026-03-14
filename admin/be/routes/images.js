@@ -67,9 +67,15 @@ imagesRouter.post("/upload", upload.single("image"), async (req, res) => {
     const outputPath = path.join(mediaDir, filename);
 
     await sharp(req.file.buffer)
-      .rotate()
-      .jpeg({ quality: 90 })
-      .toFile(outputPath);
+  .rotate()
+  .resize({
+    width: 1920,
+    height: 1080,
+    fit: "inside"
+  })
+  .withMetadata(false)
+  .jpeg({ quality: 80 })
+  .toFile(outputPath);
 
     res.json({
       filename,

@@ -10,3 +10,5 @@ news-vault/*/
 .admin/
 
 .env
+
+.DS_Store

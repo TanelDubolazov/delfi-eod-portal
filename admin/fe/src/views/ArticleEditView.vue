@@ -26,6 +26,62 @@ const form = ref({
   publishDate: new Date().toISOString().slice(0, 16),
 });
 
+// TODO: Autosave to 30 seconds before production
+
+const AUTOSAVE_INTERVAL = 5_000;   // Autosave interval. 5 seconds for dev
+const isDirty = ref(false);
+const autosaving = ref(false);
+const autosaveFlash = ref(false);
+const lastAutosaved = ref('');
+let autosaveTimer: ReturnType<typeof setTimeout> | null = null;
+let editorReady = false;
+
+function markDirty() {
+  if (!editorReady) return;
+  isDirty.value = true;
+  if (autosaveTimer) clearTimeout(autosaveTimer);
+  autosaveTimer = setTimeout(autosave, AUTOSAVE_INTERVAL);
+}
+
+async function autosave() {
+  if (!isDirty.value || saving.value) return;
+  if (!form.value.title.trim() && !form.value.body.trim()) return;
+
+  autosaving.value = true;
+  try {
+    form.value.body = markdownEditor.value?.value() || form.value.body;
+
+    const payload = {
+      title: form.value.title,
+      lead: form.value.lead,
+      leadImage: form.value.leadImage,
+      body: form.value.body,
+      author: form.value.author || null,
+      published: form.value.published,
+      publishDate: form.value.publishDate
+        ? new Date(form.value.publishDate).toISOString()
+        : new Date().toISOString(),
+    };
+
+    if (isNew.value || !articleId.value) {
+      if (!form.value.title.trim()) return;
+      const { data } = await api.post('/articles', payload);
+      articleSlug.value = data.slug;
+      router.replace(`/articles/${data.id}`);
+    } else {
+      await api.put(`/articles/${articleId.value}/autosave`, payload);
+    }
+
+    isDirty.value = false;
+    lastAutosaved.value = new Date().toLocaleTimeString();
+    autosaveFlash.value = true;
+    setTimeout(() => { autosaveFlash.value = false; }, 2500);
+  } catch {
+  } finally {
+    autosaving.value = false;
+  }
+}
+
 function setupMarkdownEditor() {
   if (!markdownInput.value) return;
 
@@ -53,6 +109,7 @@ function setupMarkdownEditor() {
 
   markdownEditor.value.codemirror.on('change', () => {
     form.value.body = markdownEditor.value?.value() || '';
+    markDirty();
   });
 }
 
@@ -75,9 +132,11 @@ onMounted(async () => {
     }
   }
   setupMarkdownEditor();
+  requestAnimationFrame(() => { editorReady = true; });
 });
 
 onUnmounted(() => {
+  if (autosaveTimer) clearTimeout(autosaveTimer);
   markdownEditor.value?.toTextArea();
   markdownEditor.value = null;
 });
@@ -112,6 +171,8 @@ async function save() {
     } else {
       await api.put(`/articles/${articleId.value}`, payload);
     }
+    isDirty.value = false;
+    if (autosaveTimer) clearTimeout(autosaveTimer);
     router.push('/');
   } catch (err: any) {
     error.value = err.response?.data?.error || 'Save failed';
@@ -163,6 +224,7 @@ async function uploadImage(event: Event, context: 'lead' | 'article') {
       markdownEditor.value?.codemirror.replaceSelection(markdownImage);
       form.value.body = markdownEditor.value?.value() || form.value.body;
     }
+    markDirty();
   } catch {
     error.value = 'Image upload failed';
   }
@@ -175,6 +237,17 @@ async function uploadImage(event: Event, context: 'lead' | 'article') {
       <button class="btn-secondary" @click="router.push('/')">← Back</button>
       <h1>{{ isNew ? 'New Article' : 'Edit Article' }}</h1>
       <div class="edit-actions">
+        <transition name="autosave-fade">
+          <span class="autosave-pill saving" v-if="autosaving" key="saving">
+            <span class="autosave-dot pulse"></span> Saving
+          </span>
+          <span class="autosave-pill saved" v-else-if="autosaveFlash" key="saved">
+            <span class="autosave-dot done"></span> Saved
+          </span>
+          <span class="autosave-pill idle" v-else-if="lastAutosaved" key="idle">
+            {{ lastAutosaved }}
+          </span>
+        </transition>
         <button class="btn-primary" @click="save" :disabled="saving">
           {{ saving ? 'Saving...' : 'Save' }}
         </button>
@@ -186,22 +259,22 @@ async function uploadImage(event: Event, context: 'lead' | 'article') {
     <div class="edit-form">
       <div class="form-group">
         <label>Title *</label>
-        <input v-model="form.title" type="text" placeholder="Article title" />
+        <input v-model="form.title" type="text" placeholder="Article title" @input="markDirty" />
       </div>
 
       <div class="form-group">
         <label>Lead</label>
-        <textarea v-model="form.lead" rows="3" placeholder="Brief summary..."></textarea>
+        <textarea v-model="form.lead" rows="3" placeholder="Brief summary..." @input="markDirty"></textarea>
       </div>
 
       <div class="form-row">
         <div class="form-group">
           <label>Author (optional)</label>
-          <input v-model="form.author" type="text" placeholder="Author name" />
+          <input v-model="form.author" type="text" placeholder="Author name" @input="markDirty" />
         </div>
         <div class="form-group">
           <label>Publish Date</label>
-          <input v-model="form.publishDate" type="datetime-local" />
+          <input v-model="form.publishDate" type="datetime-local" @input="markDirty" />
         </div>
       </div>
 
@@ -213,7 +286,7 @@ async function uploadImage(event: Event, context: 'lead' | 'article') {
             {{ form.leadImage ? 'Change Image' : 'Upload Lead Image' }}
             <input type="file" accept="image/*" @change="uploadImage($event, 'lead')" hidden />
           </label>
-          <button v-if="form.leadImage" class="btn-danger btn-sm" @click="form.leadImage = null">
+          <button v-if="form.leadImage" class="btn-danger btn-sm" @click="form.leadImage = null; markDirty()">
             Remove
           </button>
         </div>
@@ -326,6 +399,60 @@ async function uploadImage(event: Event, context: 'lead' | 'article') {
 
 .markdown-input {
   min-height: 300px;
+}
+
+.autosave-fade-enter-active,
+.autosave-fade-leave-active {
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+.autosave-fade-enter-from { opacity: 0; transform: translateY(-4px); }
+.autosave-fade-leave-to { opacity: 0; transform: translateY(4px); }
+
+.autosave-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 4px 10px;
+  border-radius: 20px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.autosave-pill.saving {
+  background: #f0f9ff;
+  color: var(--primary);
+}
+
+.autosave-pill.saved {
+  background: #f0fdf4;
+  color: var(--success);
+}
+
+.autosave-pill.idle {
+  color: var(--text-secondary);
+}
+
+.autosave-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.autosave-dot.pulse {
+  background: var(--primary);
+  animation: dot-pulse 1s ease-in-out infinite;
+}
+
+.autosave-dot.done {
+  background: var(--success);
+}
+
+@keyframes dot-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
 }
 
 .error-msg {
