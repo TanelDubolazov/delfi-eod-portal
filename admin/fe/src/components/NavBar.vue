@@ -1,14 +1,30 @@
 <script setup lang="ts">
-// TODO: user info + logout button
+import { useRouter, useRoute } from 'vue-router';
+import api from '../api';
+
+const router = useRouter();
+const route = useRoute();
+
+async function logout() {
+  try {
+    await api.post('/auth/logout');
+  } catch {
+    // continue even if server errors
+  }
+  router.push('/login');
+}
 </script>
 
 <template>
-  <nav class="navbar">
+  <nav class="navbar" v-if="route.name !== 'Login'">
     <div class="navbar-inner">
       <router-link to="/" class="navbar-brand">
         <img src="/delfi.png" alt="Delfi" class="brand-logo" />
         EOD Admin
       </router-link>
+      <div class="navbar-actions">
+        <button class="btn-secondary btn-sm" @click="logout">Log Out</button>
+      </div>
     </div>
   </nav>
 </template>
