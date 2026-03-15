@@ -60,6 +60,22 @@ articlesRouter.put("/:id", (req, res) => {
   res.json(updated);
 });
 
+articlesRouter.put("/:id/autosave", (req, res) => {
+  const existing = getArticle(req.params.id);
+  if (!existing) return res.status(404).json({ error: "Article not found" });
+
+  const updated = {
+    ...existing,
+    ...req.body,
+    id: existing.id,
+    createdAt: existing.createdAt,
+    updatedAt: existing.updatedAt,
+  };
+
+  saveArticle(updated);
+  res.json({ autosavedAt: new Date().toISOString() });
+});
+
 articlesRouter.delete("/:id", (req, res) => {
   const success = deleteArticle(req.params.id);
   if (!success) return res.status(404).json({ error: "Article not found" });
