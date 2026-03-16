@@ -1,0 +1,25 @@
+---
+const { message, active } = Astro.props;
+---
+
+{active && (
+  <div class="alert-banner">
+    ⚠️ {message}
+  </div>
+)}
+
+<style>
+.alert-banner {
+  width: 100%;
+  background: white;
+  color: #b42318;
+  border-top: 3px solid #b42318;
+  border-bottom: 3px solid #b42318;
+  padding: 14px;
+  text-align: center;
+  letter-spacing: 0.3px;
+  font-size: 16px;
+  font-weight: bold;
+  font-size: 18px;
+}
+</style>
