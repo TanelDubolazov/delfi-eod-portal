@@ -10,6 +10,7 @@ import { authRouter } from './auth/routes.js';
 import { requireAuth } from './auth/middleware.js';
 import { articlesRouter } from './routes/articles.js';
 import { imagesRouter } from './routes/images.js';
+import { alertRouter } from './routes/alert.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -22,6 +23,7 @@ initAuth(BASE_DIR);
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+app.set('BASE_DIR', BASE_DIR);
 
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json({ limit: '50mb' }));
@@ -43,6 +45,7 @@ app.use('/uploads', express.static(path.join(BASE_DIR, 'news-vault')));
 app.use('/api/auth', authRouter);
 app.use('/api/articles', requireAuth, articlesRouter);
 app.use('/api/images', requireAuth, imagesRouter);
+app.use('/api/alert', requireAuth, alertRouter);
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
