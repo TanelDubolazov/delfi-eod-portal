@@ -11,4 +11,4 @@ news-vault/*/
 
 .env
 
-.DS_Store
+.DS_Store.vite

@@ -11,6 +11,7 @@ import { requireAuth } from './auth/middleware.js';
 import { articlesRouter } from './routes/articles.js';
 import { imagesRouter } from './routes/images.js';
 import { alertRouter } from './routes/alert.js';
+import { serverRouter } from './routes/server.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -46,6 +47,7 @@ app.use('/api/auth', authRouter);
 app.use('/api/articles', requireAuth, articlesRouter);
 app.use('/api/images', requireAuth, imagesRouter);
 app.use('/api/alert', requireAuth, alertRouter);
+app.use('/api/server', requireAuth, serverRouter);
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });

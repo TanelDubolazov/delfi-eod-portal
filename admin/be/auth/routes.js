@@ -4,6 +4,7 @@ import {
   setup,
   verifyPassword,
   decryptCredentials,
+  updateCredentials,
 } from "./crypto.js";
 
 export const authRouter = Router();
@@ -30,10 +31,11 @@ authRouter.post("/setup", async (req, res) => {
 
   try {
     const serverCreds = credentials || {};
-    const decrypted = await setup(password, serverCreds);
+    const { credentials: decrypted, keyHex } = await setup(password, serverCreds);
 
     req.session.authenticated = true;
     req.session.serverCredentials = decrypted;
+    req.session.encryptionKey = keyHex;
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: "Setup failed" });
@@ -55,13 +57,14 @@ authRouter.post("/login", async (req, res) => {
     return res.status(401).json({ error: "Invalid password" });
   }
 
-  const decrypted = await decryptCredentials(password);
-  if (!decrypted) {
+  const result = await decryptCredentials(password);
+  if (!result) {
     return res.status(500).json({ error: "Failed to decrypt credentials" });
   }
 
   req.session.authenticated = true;
-  req.session.serverCredentials = decrypted;
+  req.session.serverCredentials = result.credentials;
+  req.session.encryptionKey = result.keyHex;
   res.json({ success: true });
 });
 

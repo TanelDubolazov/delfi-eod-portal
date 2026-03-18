@@ -23,6 +23,7 @@ async function logout() {
         EOD Admin
       </router-link>
       <div class="navbar-actions">
+        <router-link to="/server" class="nav-link server-link">⚙ Server</router-link>
         <button class="btn-secondary btn-sm" @click="logout">Log Out</button>
       </div>
     </div>
@@ -67,6 +68,31 @@ async function logout() {
   display: flex;
   align-items: center;
   gap: 12px;
+}
+
+.nav-link {
+  color: var(--text-secondary);
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.nav-link:hover {
+  color: var(--text);
+}
+
+.server-link {
+  background: var(--text);
+  color: var(--surface);
+  border: none;
+  padding: 6px 14px;
+  border-radius: var(--radius);
+  font-size: 13px;
+}
+
+.server-link:hover {
+  background: var(--text-secondary);
+  color: var(--surface);
 }
 
 .user-name {
