@@ -6,6 +6,8 @@ import api from '../api';
 const router = useRouter();
 const articles = ref<any[]>([]);
 const loading = ref(true);
+const alertActive = ref(false);
+const alertLoading = ref(false);
 
 async function fetchArticles() {
   loading.value = true;
@@ -16,6 +18,27 @@ async function fetchArticles() {
     console.error('Failed to fetch articles:', err);
   } finally {
     loading.value = false;
+  }
+}
+
+async function fetchAlert() {
+  try {
+    const { data } = await api.get('/alert');
+    alertActive.value = data.active;
+  } catch (err) {
+    console.error('Failed to fetch alert state:', err);
+  }
+}
+
+async function toggleAlert() {
+  alertLoading.value = true;
+  try {
+    const { data } = await api.post('/alert/toggle');
+    alertActive.value = data.active;
+  } catch (err) {
+    console.error('Failed to toggle alert:', err);
+  } finally {
+    alertLoading.value = false;
   }
 }
 
@@ -43,16 +66,27 @@ function formatDate(dateStr: string) {
   });
 }
 
-onMounted(fetchArticles);
+onMounted(async () => {
+  await Promise.all([fetchArticles(), fetchAlert()]);
+});
 </script>
 
 <template>
   <div class="dashboard">
     <div class="dashboard-header">
       <h1>Articles</h1>
-      <button class="btn-primary" @click="router.push('/articles/new')">
-        + New Article
-      </button>
+      <div style="display:flex; gap: 8px; align-items: center;">
+        <button
+          class="btn-primary"
+          @click="toggleAlert"
+          :disabled="alertLoading"
+        >
+          {{ alertLoading ? 'Updating...' : (alertActive ? 'Deactivate Critical Alert' : 'Activate Critical Alert') }}
+        </button>
+        <button class="btn-primary" @click="router.push('/articles/new')">
+          + New Article
+        </button>
+      </div>
     </div>
 
     <div v-if="loading" class="loading">Loading articles...</div>
