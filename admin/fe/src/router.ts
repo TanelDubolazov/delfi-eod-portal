@@ -3,12 +3,14 @@ import api from './api';
 import DashboardView from './views/DashboardView.vue';
 import ArticleEditView from './views/ArticleEditView.vue';
 import LoginView from './views/LoginView.vue';
+import ServerConnectionView from './views/ServerConnectionView.vue';
 
 const routes = [
   { path: '/login', name: 'Login', component: LoginView, meta: { public: true } },
   { path: '/', name: 'Dashboard', component: DashboardView },
   { path: '/articles/new', name: 'NewArticle', component: ArticleEditView },
   { path: '/articles/:id', name: 'EditArticle', component: ArticleEditView },
+  { path: '/server', name: 'ServerConnection', component: ServerConnectionView },
 ];
 
 const router = createRouter({

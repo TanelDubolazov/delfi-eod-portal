@@ -83,7 +83,18 @@ export async function setup(password, serverCredentials) {
   writeConfig({ passwordHash, salt, iv, authTag, createdAt: new Date().toISOString() });
   fs.writeFileSync(credentialsPath, encrypted);
 
-  return serverCredentials;
+  return { credentials: serverCredentials, keyHex: key.toString("hex") };
+}
+
+export function updateCredentials(serverCredentials, keyHex) {
+  const config = readConfig();
+  if (!config) throw new Error("Not configured");
+  const key = Buffer.from(keyHex, "hex");
+  const { iv, authTag, encrypted } = encrypt(serverCredentials, key);
+  config.iv = iv;
+  config.authTag = authTag;
+  writeConfig(config);
+  fs.writeFileSync(credentialsPath, encrypted);
 }
 
 export async function verifyPassword(password) {
@@ -100,7 +111,8 @@ export async function decryptCredentials(password) {
   const encryptedBuf = fs.readFileSync(credentialsPath);
 
   try {
-    return decrypt(encryptedBuf, key, config.iv, config.authTag);
+    const credentials = decrypt(encryptedBuf, key, config.iv, config.authTag);
+    return { credentials, keyHex: key.toString("hex") };
   } catch {
     return null;
   }
