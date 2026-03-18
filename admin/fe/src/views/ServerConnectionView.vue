@@ -7,69 +7,86 @@ const router = useRouter();
 
 const loading = ref(true);
 const saving = ref(false);
-const testing = ref(false);
+const testing = ref<string | null>(null);
 const error = ref('');
-const success = ref('');
-const testResult = ref<{ success: boolean; ms: number; details: string } | null>(null);
+const testResults = ref<Record<string, { success: boolean; ms: number; details: string }>>({});
 
-const type = ref<'s3' | 'sftp'>('s3');
+function getTestResult(id: string) {
+  return testResults.value[id] || null;
+}
 
-const s3 = ref({
-  endpoint: '',
-  bucket: '',
-  accessKey: '',
-  secretKey: '',
-  region: '',
-});
+interface Server {
+  id: string;
+  name: string;
+  type: 's3' | 'sftp';
+  [key: string]: any;
+}
 
-const sftp = ref({
-  host: '',
-  port: 22,
-  username: '',
-  password: '',
-  path: '/',
-});
+const servers = ref<Server[]>([]);
+const editing = ref<string | null>(null);
 
-const hasExisting = ref(false);
+const name = ref('');
+const type = ref<'s3' | 'sftp'>('sftp');
+const s3 = ref({ endpoint: '', bucket: '', accessKey: '', secretKey: '', region: '' });
+const sftp = ref({ host: '', port: 22, username: '', password: '', path: '/' });
 
-async function fetchConfig() {
+async function fetchServers() {
   loading.value = true;
   try {
     const { data } = await api.get('/server');
-    if (data.type) {
-      type.value = data.type;
-      hasExisting.value = true;
-      if (data.type === 's3') {
-        s3.value = {
-          endpoint: data.s3Endpoint || '',
-          bucket: data.s3Bucket || '',
-          accessKey: data.s3AccessKey || '',
-          secretKey: '',
-          region: data.s3Region || '',
-        };
-      } else if (data.type === 'sftp') {
-        sftp.value = {
-          host: data.sftpHost || '',
-          port: data.sftpPort || 22,
-          username: data.sftpUsername || '',
-          password: '',
-          path: data.sftpPath || '/',
-        };
-      }
-    }
-  } catch (err: any) {
-    console.error('Failed to load server config:', err);
+    servers.value = data;
+    if (!data.length) startNew();
+  } catch {
+    // ignore
   } finally {
     loading.value = false;
   }
 }
 
+function startNew() {
+  editing.value = 'new';
+  name.value = '';
+  type.value = 'sftp';
+  s3.value = { endpoint: '', bucket: '', accessKey: '', secretKey: '', region: '' };
+  sftp.value = { host: '', port: 22, username: '', password: '', path: '/' };
+  error.value = '';
+}
+
+function startEdit(server: Server) {
+  editing.value = server.id;
+  name.value = server.name;
+  type.value = server.type;
+  error.value = '';
+  if (server.type === 's3') {
+    s3.value = {
+      endpoint: server.s3Endpoint || '',
+      bucket: server.s3Bucket || '',
+      accessKey: server.s3AccessKey || '',
+      secretKey: '',
+      region: server.s3Region || '',
+    };
+  } else {
+    sftp.value = {
+      host: server.sftpHost || '',
+      port: server.sftpPort || 22,
+      username: server.sftpUsername || '',
+      password: '',
+      path: server.sftpPath || '/',
+    };
+  }
+}
+
+function cancelEdit() {
+  editing.value = null;
+  error.value = '';
+}
+
 async function save() {
   saving.value = true;
   error.value = '';
-  success.value = '';
 
-  const payload: Record<string, any> = { type: type.value };
+  const payload: Record<string, any> = { name: name.value, type: type.value };
+  if (editing.value !== 'new') payload.id = editing.value;
 
   if (type.value === 's3') {
     payload.s3Endpoint = s3.value.endpoint;
@@ -87,8 +104,8 @@ async function save() {
 
   try {
     await api.put('/server', payload);
-    success.value = 'Settings saved';
-    hasExisting.value = true;
+    editing.value = null;
+    await fetchServers();
   } catch (err: any) {
     error.value = err.response?.data?.error || 'Save failed';
   } finally {
@@ -96,22 +113,31 @@ async function save() {
   }
 }
 
-async function testConnection() {
-  testing.value = true;
-  testResult.value = null;
-  error.value = '';
-
+async function deleteServer(id: string) {
   try {
-    const { data } = await api.post('/server/test');
-    testResult.value = data;
+    await api.delete(`/server/${id}`);
+    if (editing.value === id) editing.value = null;
+    delete testResults.value[id];
+    await fetchServers();
   } catch (err: any) {
-    error.value = err.response?.data?.error || 'Test failed';
-  } finally {
-    testing.value = false;
+    error.value = err.response?.data?.error || 'Delete failed';
   }
 }
 
-onMounted(fetchConfig);
+async function testServer(id: string) {
+  testing.value = id;
+  delete testResults.value[id];
+  try {
+    const { data } = await api.post(`/server/${id}/test`);
+    testResults.value[id] = data;
+  } catch (err: any) {
+    testResults.value[id] = { success: false, ms: 0, details: err.response?.data?.error || 'Test failed' };
+  } finally {
+    testing.value = null;
+  }
+}
+
+onMounted(fetchServers);
 </script>
 
 <template>
@@ -126,103 +152,115 @@ onMounted(fetchConfig);
 
     <div v-if="loading" class="loading">Loading...</div>
 
-    <div v-else class="server-form">
-      <div class="type-selector">
-        <button
-          :class="['type-btn', { active: type === 's3' }]"
-          @click="type = 's3'"
-        >
-          S3 / Object Storage
-        </button>
-        <button
-          :class="['type-btn', { active: type === 'sftp' }]"
-          @click="type = 'sftp'"
-        >
-          SFTP
-        </button>
+    <template v-else>
+      <div class="server-list" v-if="servers.length">
+        <div v-for="s in servers" :key="s.id" class="server-row">
+          <div class="server-info">
+            <strong>{{ s.name }}</strong>
+            <span class="type-badge">{{ s.type.toUpperCase() }}</span>
+          </div>
+          <div class="server-actions">
+            <button class="btn-secondary btn-sm" @click="testServer(s.id)" :disabled="testing === s.id">
+              {{ testing === s.id ? 'Testing...' : 'Test' }}
+            </button>
+            <button class="btn-secondary btn-sm" @click="editing === s.id ? cancelEdit() : startEdit(s)">{{ editing === s.id ? 'Close' : 'Edit' }}</button>
+            <button class="btn-danger btn-sm" @click="deleteServer(s.id)">Delete</button>
+          </div>
+          <div v-if="getTestResult(s.id)" :class="['test-result', getTestResult(s.id)?.success ? 'test-success' : 'test-fail']">
+            <strong>{{ getTestResult(s.id)?.success ? 'Connected' : 'Failed' }}</strong>
+            <span class="test-ms">({{ getTestResult(s.id)?.ms }}ms)</span>
+            — {{ getTestResult(s.id)?.details }}
+          </div>
+        </div>
       </div>
 
-      <div class="info-box" v-if="hasExisting">
-        Connection saved. Leave secret fields blank to keep existing values.
+      <button v-if="!editing && servers.length" class="btn-primary" @click="startNew">+ Add Server</button>
+
+      <div v-if="editing" class="server-form">
+        <h2>{{ editing === 'new' ? 'Add Server' : 'Edit Server' }}</h2>
+
+        <form @submit.prevent="save">
+          <div class="form-group">
+            <label>Server Name</label>
+            <input v-model="name" placeholder="e.g. Production, Staging" />
+          </div>
+
+          <div class="type-selector">
+            <button
+              :class="['type-btn', { active: type === 's3' }]"
+              type="button"
+              @click="type = 's3'"
+            >S3 / Object Storage</button>
+            <button
+              :class="['type-btn', { active: type === 'sftp' }]"
+              type="button"
+              @click="type = 'sftp'"
+            >SFTP</button>
+          </div>
+
+          <template v-if="type === 's3'">
+            <div class="form-group">
+              <label>Endpoint URL</label>
+              <input v-model="s3.endpoint" placeholder="https://s3.eu-central-1.amazonaws.com" />
+            </div>
+            <div class="form-group">
+              <label>Bucket Name</label>
+              <input v-model="s3.bucket" placeholder="eod-portal-bucket" />
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label>Access Key</label>
+                <input v-model="s3.accessKey" placeholder="AKIA..." />
+              </div>
+              <div class="form-group">
+                <label>Secret Key</label>
+                <input v-model="s3.secretKey" type="password" placeholder="Enter secret key" />
+              </div>
+            </div>
+            <div class="form-group">
+              <label>Region <span class="optional">(optional)</span></label>
+              <input v-model="s3.region" placeholder="eu-central-1" />
+            </div>
+          </template>
+
+          <template v-if="type === 'sftp'">
+            <div class="form-row">
+              <div class="form-group" style="flex: 2">
+                <label>Host</label>
+                <input v-model="sftp.host" placeholder="sftp.example.com" />
+              </div>
+              <div class="form-group" style="flex: 1">
+                <label>Port</label>
+                <input v-model.number="sftp.port" type="number" />
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label>Username</label>
+                <input v-model="sftp.username" placeholder="deploy-user" />
+              </div>
+              <div class="form-group">
+                <label>Password</label>
+                <input v-model="sftp.password" type="password" placeholder="Enter password" />
+              </div>
+            </div>
+            <div class="form-group">
+              <label>Remote Path</label>
+              <input v-model="sftp.path" placeholder="/var/www/portal" />
+            </div>
+          </template>
+
+          <div class="error-msg" v-if="error">{{ error }}</div>
+
+          <div class="form-actions">
+            <button class="btn-primary" type="submit" :disabled="saving">
+              {{ saving ? 'Saving...' : 'Save' }}
+            </button>
+            <button class="btn-secondary" type="button" @click="cancelEdit">Cancel</button>
+          </div>
+        </form>
       </div>
-
-      <form @submit.prevent="save">
-        <template v-if="type === 's3'">
-          <div class="form-group">
-            <label>Endpoint URL</label>
-            <input v-model="s3.endpoint" placeholder="https://s3.eu-central-1.amazonaws.com" />
-          </div>
-          <div class="form-group">
-            <label>Bucket Name</label>
-            <input v-model="s3.bucket" placeholder="eod-portal-bucket" />
-          </div>
-          <div class="form-row">
-            <div class="form-group">
-              <label>Access Key</label>
-              <input v-model="s3.accessKey" placeholder="AKIA..." />
-            </div>
-            <div class="form-group">
-              <label>Secret Key</label>
-              <input v-model="s3.secretKey" type="password" placeholder="Enter secret key" />
-            </div>
-          </div>
-          <div class="form-group">
-            <label>Region <span class="optional">(optional)</span></label>
-            <input v-model="s3.region" placeholder="eu-central-1" />
-          </div>
-        </template>
-
-        <template v-if="type === 'sftp'">
-          <div class="form-row">
-            <div class="form-group" style="flex: 2">
-              <label>Host</label>
-              <input v-model="sftp.host" placeholder="sftp.example.com" />
-            </div>
-            <div class="form-group" style="flex: 1">
-              <label>Port</label>
-              <input v-model.number="sftp.port" type="number" />
-            </div>
-          </div>
-          <div class="form-row">
-            <div class="form-group">
-              <label>Username</label>
-              <input v-model="sftp.username" placeholder="deploy-user" />
-            </div>
-            <div class="form-group">
-              <label>Password</label>
-              <input v-model="sftp.password" type="password" placeholder="Enter password" />
-            </div>
-          </div>
-          <div class="form-group">
-            <label>Remote Path</label>
-            <input v-model="sftp.path" placeholder="/var/www/portal" />
-          </div>
-        </template>
-
-        <div class="error-msg" v-if="error">{{ error }}</div>
-        <div class="success-msg" v-if="success">{{ success }}</div>
-
-        <div class="form-actions">
-          <button class="btn-primary" type="submit" :disabled="saving">
-            {{ saving ? 'Saving...' : 'Save Connection' }}
-          </button>
-          <button
-            class="btn-secondary"
-            type="button"
-            :disabled="testing || !hasExisting"
-            @click="testConnection"
-          >
-            {{ testing ? 'Testing...' : 'Test Connection' }}
-          </button>
-        </div>
-
-        <div v-if="testResult" :class="['test-result', testResult.success ? 'test-success' : 'test-fail']">
-          <strong>{{ testResult.success ? 'Connected' : 'Failed' }}</strong>
-          <span class="test-ms">({{ testResult.ms }}ms)</span>
-          <p>{{ testResult.details }}</p>
-        </div>
-      </form>
-    </div>
+    </template>
   </div>
 </template>
 
@@ -264,8 +302,53 @@ onMounted(fetchConfig);
   color: var(--text);
 }
 
+.server-list {
+  margin-bottom: 20px;
+}
+
+.server-row {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 16px;
+  margin-bottom: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.server-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.type-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+}
+
+.server-actions {
+  display: flex;
+  gap: 6px;
+}
+
 .server-form {
   max-width: 600px;
+  margin-top: 20px;
+  border-top: 1px solid var(--border);
+  padding-top: 20px;
+}
+
+.server-form h2 {
+  font-size: 20px;
+  margin-bottom: 16px;
 }
 
 .type-selector {
@@ -297,16 +380,6 @@ onMounted(fetchConfig);
 .type-btn.active {
   background: var(--primary);
   color: white;
-}
-
-.info-box {
-  background: #eff6ff;
-  border: 1px solid #bfdbfe;
-  color: #1e40af;
-  padding: 10px 14px;
-  border-radius: var(--radius);
-  font-size: 13px;
-  margin-bottom: 20px;
 }
 
 .form-group {
@@ -343,13 +416,10 @@ onMounted(fetchConfig);
 }
 
 .test-result {
-  margin-top: 16px;
-  padding: 12px 14px;
+  width: 100%;
+  padding: 8px 12px;
   border-radius: var(--radius);
   font-size: 13px;
-}
-
-.test-result p {
   margin-top: 4px;
 }
 
@@ -374,15 +444,6 @@ onMounted(fetchConfig);
 .error-msg {
   background: #fee2e2;
   color: #991b1b;
-  padding: 10px 14px;
-  border-radius: var(--radius);
-  font-size: 13px;
-  margin-bottom: 12px;
-}
-
-.success-msg {
-  background: #dcfce7;
-  color: #166534;
   padding: 10px 14px;
   border-radius: var(--radius);
   font-size: 13px;
