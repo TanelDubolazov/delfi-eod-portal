@@ -13,6 +13,11 @@ async function logout() {
   }
   router.push('/login');
 }
+
+function toggleServer() {
+  if (route.path === '/server') router.back();
+  else router.push('/server');
+}
 </script>
 
 <template>
@@ -23,7 +28,7 @@ async function logout() {
         EOD Admin
       </router-link>
       <div class="navbar-actions">
-        <router-link to="/server" class="nav-link server-link">⚙ Server</router-link>
+        <button class="nav-link server-link" @click="toggleServer">⚙ Server</button>
         <button class="btn-secondary btn-sm" @click="logout">Log Out</button>
       </div>
     </div>
