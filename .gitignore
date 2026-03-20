@@ -11,4 +11,5 @@ dist/
 .env.*
 !.env.example
 
+.DS_Store.vite
 .DS_Store
