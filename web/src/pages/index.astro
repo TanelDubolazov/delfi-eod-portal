@@ -115,6 +115,8 @@ const posts = (await getCollection('news')).sort(
 										<Image
 											width={index === 0 ? 960 : 480}
 											height={index === 0 ? 420 : 240}
+											loading={index < 3 ? 'eager' : 'lazy'}
+											fetchpriority={index < 3 ? 'high' : 'auto'}
 											src={post.data.heroImage}
 											alt={post.data.heroImageAlt ?? post.data.title}
 										/>

@@ -1,17 +1,10 @@
 ---
-interface Props {
-	date: Date;
-}
+import { DATE_FORMAT_OPTIONS, DATE_LOCALE, DATE_TIME_FORMAT_OPTIONS } from '../consts';
 
-const { date } = Astro.props;
+const { date, includeTime = false } = Astro.props;
+const formatOptions = includeTime ? DATE_TIME_FORMAT_OPTIONS : DATE_FORMAT_OPTIONS;
 ---
 
 <time datetime={date.toISOString()}>
-	{
-		date.toLocaleDateString('en-us', {
-			year: 'numeric',
-			month: 'short',
-			day: 'numeric',
-		})
-	}
+	{date.toLocaleString(DATE_LOCALE, formatOptions)}
 </time>
