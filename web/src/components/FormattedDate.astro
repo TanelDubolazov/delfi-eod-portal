@@ -1,13 +1,9 @@
 ---
+import { DATE_FORMAT_OPTIONS, DATE_LOCALE } from '../consts';
+
 const { date } = Astro.props;
 ---
 
 <time datetime={date.toISOString()}>
-	{
-		date.toLocaleDateString('en-us', {
-			year: 'numeric',
-			month: 'short',
-			day: 'numeric',
-		})
-	}
+	{date.toLocaleDateString(DATE_LOCALE, DATE_FORMAT_OPTIONS)}
 </time>

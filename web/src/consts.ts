@@ -10,3 +10,10 @@ export const ALERT = {
 
 export const FOOTER_COPYRIGHT_TEXT =
   "Emergency Operation Delfi. All rights reserved.";
+
+export const DATE_LOCALE = "et-EE";
+export const DATE_FORMAT_OPTIONS: Intl.DateTimeFormatOptions = {
+  year: "numeric",
+  month: "short",
+  day: "numeric",
+};
