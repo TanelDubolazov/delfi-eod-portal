@@ -17,3 +17,10 @@ export const DATE_FORMAT_OPTIONS: Intl.DateTimeFormatOptions = {
   month: "short",
   day: "numeric",
 };
+
+export const DATE_TIME_FORMAT_OPTIONS: Intl.DateTimeFormatOptions = {
+  ...DATE_FORMAT_OPTIONS,
+  hour: "2-digit",
+  minute: "2-digit",
+  hour12: false,
+};
