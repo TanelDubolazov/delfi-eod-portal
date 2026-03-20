@@ -4,7 +4,7 @@ import { glob } from "astro/loaders";
 const news = defineCollection({
   // Load Markdown files in the `news-vault/published` directory.
   loader: glob({
-    base: "../../news-vault/published",
+    base: "../news-vault/published",
     pattern: "**/newspost.md",
     generateId: ({ entry, data }) => {
       if (typeof data.slug === "string" && data.slug.length > 0) {

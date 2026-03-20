@@ -1,12 +1,15 @@
 node_modules/
 dist/
 .pids/
-.vscode/
+/.vscode/
+**/.vite/
 
 # Admin local data
 .admin/
 
 .env
+.env.*
+!.env.example
 
 .DS_Store.vite
 .DS_Store
