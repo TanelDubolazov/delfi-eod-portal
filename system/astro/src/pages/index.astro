@@ -108,11 +108,16 @@ const posts = (await getCollection('news')).sort(
 			<section>
 				<ul>
 					{
-						posts.map((post) => (
+						posts.map((post, index) => (
 							<li>
 								<a href={`/${post.id}/`}>
 									{post.data.heroImage && (
-										<Image width={720} height={360} src={post.data.heroImage} alt="" />
+										<Image
+											width={index === 0 ? 960 : 480}
+											height={index === 0 ? 420 : 240}
+											src={post.data.heroImage}
+											alt={post.data.heroImageAlt ?? post.data.title}
+										/>
 									)}
 									<h4 class="title">{post.data.title}</h4>
 									<p class="date">
