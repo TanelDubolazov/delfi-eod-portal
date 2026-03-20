@@ -10,7 +10,7 @@ const news = defineCollection({
       if (typeof data.slug === "string" && data.slug.length > 0) {
         return data.slug;
       }
-      return entry.replace(/\/newspost\.md$/, "");
+      return entry.replace(/[\\/]newspost\.md$/, "");
     },
   }),
   // Type-check frontmatter using a schema
