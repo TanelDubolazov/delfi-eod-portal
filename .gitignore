@@ -8,4 +8,5 @@ dist/
 
 .env
 
+.DS_Store.vite
 .DS_Store
