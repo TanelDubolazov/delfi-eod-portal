@@ -3,7 +3,6 @@
 
 export const SITE_TITLE = "Crisis Portal";
 export const SITE_DESCRIPTION = "Welcome to Emergency Operation Delfi EOD!";
-
 export const ALERT = {
   active: false,
   message: "Critical alert: Crisis information updated",
