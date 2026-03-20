@@ -1,11 +1,17 @@
 import { defineCollection, z } from "astro:content";
 import { glob } from "astro/loaders";
 
-const blog = defineCollection({
-  // Load Markdown and MDX files in the `src/content/blog/` directory.
+const news = defineCollection({
+  // Load Markdown files in the `news-vault/published` directory.
   loader: glob({
     base: "../../news-vault/published",
     pattern: "**/newspost.md",
+    generateId: ({ entry, data }) => {
+      if (typeof data.slug === "string" && data.slug.length > 0) {
+        return data.slug;
+      }
+      return entry.replace(/\/newspost\.md$/, "");
+    },
   }),
   // Type-check frontmatter using a schema
   schema: ({ image }) =>
@@ -19,4 +25,4 @@ const blog = defineCollection({
     }),
 });
 
-export const collections = { blog };
+export const collections = { news };
