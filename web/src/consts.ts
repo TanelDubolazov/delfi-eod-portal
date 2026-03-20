@@ -7,3 +7,6 @@ export const ALERT = {
   active: false,
   message: "Critical alert: Crisis information updated",
 };
+
+export const FOOTER_COPYRIGHT_TEXT =
+  "Emergency Operation Delfi. All rights reserved.";
