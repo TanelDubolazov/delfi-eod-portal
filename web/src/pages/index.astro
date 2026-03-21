@@ -110,7 +110,7 @@ const posts = (await getCollection('news', ({ data }) => data.status === 'publis
 					{
 						posts.map((post, index) => (
 							<li>
-								<a href={`/news-vault/${post.id}/`}>
+								<a href={`/news/${post.id}/`}>
 									{post.data.heroImage && (
 										<Image
 											width={index === 0 ? 960 : 480}
