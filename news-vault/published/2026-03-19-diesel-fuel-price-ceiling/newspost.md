@@ -7,7 +7,7 @@ heroImage: ./media/lead.jpg
 heroImageAlt: "Diesel and petrol fuel pump nozzles at a gas station."
 id: 0bea49d5-95b1-4f5e-85e4-ee8361e9210b
 author: Heilika
-status: published
+published: true
 createdAt: "2026-03-19T13:49:35.021Z"
 updatedAt: "2026-03-19T13:54:38.616Z"
 ---

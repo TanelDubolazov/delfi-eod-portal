@@ -13,7 +13,7 @@ export default defineConfig({
   vite: {
     server: {
       fs: {
-        allow: [path.resolve("."), path.resolve("../news-vault")],
+        allow: [path.resolve("."), path.resolve("../news-vault/published")],
       },
     },
   },

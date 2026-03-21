@@ -8,7 +8,7 @@ import Header from '../components/Header.astro';
 import { ALERT, SITE_DESCRIPTION, SITE_TITLE } from '../consts';
 import AlertBanner from '../components/AlertBanner.astro';
 
-const posts = (await getCollection('news', ({ data }) => data.status === 'published')).sort(
+const posts = (await getCollection('news')).sort(
 	(a, b) => b.data.pubDate.valueOf() - a.data.pubDate.valueOf(),
 );
 ---

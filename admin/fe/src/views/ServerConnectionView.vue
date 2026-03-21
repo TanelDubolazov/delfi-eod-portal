@@ -2,30 +2,17 @@
 import { ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import api from '../api';
-import { useActiveServer } from '../useActiveServer';
 
 const router = useRouter();
-const { activeServerId, workOffline } = useActiveServer();
-
-function setActive(id: string) {
-  activeServerId.value = id;
-  workOffline.value = false;
-}
 
 const loading = ref(true);
 const saving = ref(false);
 const testing = ref<string | null>(null);
-const deploying = ref<string | null>(null);
 const error = ref('');
-const testResults = ref<Record<string, { success: boolean; ms: number; details: string }>>({})
-const deployResults = ref<Record<string, { success: boolean; ms: number; details: string }>>({})
+const testResults = ref<Record<string, { success: boolean; ms: number; details: string }>>({});
 
 function getTestResult(id: string) {
   return testResults.value[id] || null;
-}
-
-function getDeployResult(id: string) {
-  return deployResults.value[id] || null;
 }
 
 interface Server {
@@ -130,9 +117,7 @@ async function deleteServer(id: string) {
   try {
     await api.delete(`/server/${id}`);
     if (editing.value === id) editing.value = null;
-    if (activeServerId.value === id) activeServerId.value = null;
     delete testResults.value[id];
-    delete deployResults.value[id];
     await fetchServers();
   } catch (err: any) {
     error.value = err.response?.data?.error || 'Delete failed';
@@ -149,19 +134,6 @@ async function testServer(id: string) {
     testResults.value[id] = { success: false, ms: 0, details: err.response?.data?.error || 'Test failed' };
   } finally {
     testing.value = null;
-  }
-}
-
-async function deployServer(id: string) {
-  deploying.value = id;
-  delete deployResults.value[id];
-  try {
-    const { data } = await api.post(`/server/${id}/deploy`);
-    deployResults.value[id] = data;
-  } catch (err: any) {
-    deployResults.value[id] = { success: false, ms: 0, details: err.response?.data?.error || 'Deploy failed' };
-  } finally {
-    deploying.value = null;
   }
 }
 
@@ -182,40 +154,22 @@ onMounted(fetchServers);
 
     <template v-else>
       <div class="server-list" v-if="servers.length">
-        <div v-for="s in servers" :key="s.id" :class="['server-card', { 'server-card--active': activeServerId === s.id }]">
-          <label class="server-top" :for="'radio-' + s.id">
-            <input
-              type="radio"
-              name="activeServer"
-              :id="'radio-' + s.id"
-              :checked="activeServerId === s.id"
-              @change="setActive(s.id)"
-            />
-            <div class="server-name-group">
-              <strong>{{ s.name }}</strong>
-              <span class="type-badge">{{ s.type.toUpperCase() }}</span>
-              <span v-if="activeServerId === s.id" class="active-badge">Active</span>
-            </div>
-            <div class="server-actions">
-              <button class="btn-secondary btn-sm" @click.prevent="testServer(s.id)" :disabled="testing === s.id || deploying === s.id">
-                {{ testing === s.id ? 'Testing...' : 'Test' }}
-              </button>
-              <button class="btn-primary btn-sm" @click.prevent="deployServer(s.id)" :disabled="deploying === s.id || testing === s.id">
-                {{ deploying === s.id ? 'Deploying...' : 'Deploy' }}
-              </button>
-              <button class="btn-secondary btn-sm" @click.prevent="editing === s.id ? cancelEdit() : startEdit(s)">{{ editing === s.id ? 'Close' : 'Edit' }}</button>
-              <button class="btn-danger btn-sm" @click.prevent="deleteServer(s.id)">Delete</button>
-            </div>
-          </label>
-          <div v-if="getTestResult(s.id)" :class="['result-banner', getTestResult(s.id)?.success ? 'result-ok' : 'result-err']">
-            {{ getTestResult(s.id)?.success ? '✓ Connected' : '✗ Failed' }}
-            <span class="result-ms">({{ getTestResult(s.id)?.ms }}ms)</span>
-            — {{ getTestResult(s.id)?.details }}
+        <div v-for="s in servers" :key="s.id" class="server-row">
+          <div class="server-info">
+            <strong>{{ s.name }}</strong>
+            <span class="type-badge">{{ s.type.toUpperCase() }}</span>
           </div>
-          <div v-if="getDeployResult(s.id)" :class="['result-banner', getDeployResult(s.id)?.success ? 'result-ok' : 'result-err']">
-            {{ getDeployResult(s.id)?.success ? '✓ Deployed' : '✗ Deploy failed' }}
-            <span class="result-ms">({{ ((getDeployResult(s.id)?.ms ?? 0) / 1000).toFixed(1) }}s)</span>
-            — {{ getDeployResult(s.id)?.details }}
+          <div class="server-actions">
+            <button class="btn-secondary btn-sm" @click="testServer(s.id)" :disabled="testing === s.id">
+              {{ testing === s.id ? 'Testing...' : 'Test' }}
+            </button>
+            <button class="btn-secondary btn-sm" @click="editing === s.id ? cancelEdit() : startEdit(s)">{{ editing === s.id ? 'Close' : 'Edit' }}</button>
+            <button class="btn-danger btn-sm" @click="deleteServer(s.id)">Delete</button>
+          </div>
+          <div v-if="getTestResult(s.id)" :class="['test-result', getTestResult(s.id)?.success ? 'test-success' : 'test-fail']">
+            <strong>{{ getTestResult(s.id)?.success ? 'Connected' : 'Failed' }}</strong>
+            <span class="test-ms">({{ getTestResult(s.id)?.ms }}ms)</span>
+            — {{ getTestResult(s.id)?.details }}
           </div>
         </div>
       </div>
@@ -246,8 +200,8 @@ onMounted(fetchServers);
 
           <template v-if="type === 's3'">
             <div class="form-group">
-              <label>Endpoint URL <span class="optional">(optional, leave blank for AWS)</span></label>
-              <input v-model="s3.endpoint" placeholder="https://minio.example.com" />
+              <label>Endpoint URL</label>
+              <input v-model="s3.endpoint" placeholder="https://s3.eu-central-1.amazonaws.com" />
             </div>
             <div class="form-group">
               <label>Bucket Name</label>
@@ -349,74 +303,25 @@ onMounted(fetchServers);
 }
 
 .server-list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
   margin-bottom: 20px;
 }
 
-.server-card {
+.server-row {
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  background: var(--surface);
-  overflow: hidden;
-  transition: border-color 0.15s, background 0.15s;
-}
-
-.server-card--active {
-  border-color: var(--primary);
-  background: #f0f6ff;
-}
-
-.server-top {
+  padding: 12px 16px;
+  margin-bottom: 8px;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
-  padding: 14px 16px;
-  cursor: pointer;
+  justify-content: space-between;
+  gap: 8px;
 }
 
-.server-top input[type="radio"] {
-  width: 16px;
-  height: 16px;
-  accent-color: var(--primary);
-  cursor: pointer;
-  flex-shrink: 0;
-}
-
-.server-name-group {
+.server-info {
   display: flex;
   align-items: center;
   gap: 8px;
-  flex: 1;
-  min-width: 0;
-}
-
-.server-actions {
-  display: flex;
-  gap: 6px;
-  flex-shrink: 0;
-}
-
-.result-banner {
-  padding: 8px 16px;
-  font-size: 13px;
-  border-top: 1px solid var(--border);
-}
-
-.result-ok {
-  background: #dcfce7;
-  color: #166534;
-}
-
-.result-err {
-  background: #fee2e2;
-  color: #991b1b;
-}
-
-.result-ms {
-  opacity: 0.7;
-  margin-left: 2px;
 }
 
 .type-badge {
@@ -427,6 +332,11 @@ onMounted(fetchServers);
   background: var(--bg);
   color: var(--text-secondary);
   border: 1px solid var(--border);
+}
+
+.server-actions {
+  display: flex;
+  gap: 6px;
 }
 
 .server-form {
@@ -505,6 +415,32 @@ onMounted(fetchServers);
   gap: 8px;
 }
 
+.test-result {
+  width: 100%;
+  padding: 8px 12px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  margin-top: 4px;
+}
+
+.test-ms {
+  color: inherit;
+  opacity: 0.7;
+  margin-left: 4px;
+}
+
+.test-success {
+  background: #dcfce7;
+  border: 1px solid #bbf7d0;
+  color: #166534;
+}
+
+.test-fail {
+  background: #fee2e2;
+  border: 1px solid #fecaca;
+  color: #991b1b;
+}
+
 .error-msg {
   background: #fee2e2;
   color: #991b1b;
@@ -512,17 +448,6 @@ onMounted(fetchServers);
   border-radius: var(--radius);
   font-size: 13px;
   margin-bottom: 12px;
-}
-
-.active-badge {
-  font-size: 11px;
-  font-weight: 700;
-  padding: 2px 7px;
-  border-radius: 4px;
-  background: var(--primary);
-  color: #fff;
-  text-transform: uppercase;
-  letter-spacing: 0.4px;
 }
 
 .loading {

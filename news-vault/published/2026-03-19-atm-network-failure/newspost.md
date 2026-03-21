@@ -9,7 +9,7 @@ heroImage: ./media/lead.jpg
 heroImageAlt: "A hand inserting a bank card into an ATM."
 id: 9dd9347e-86e0-4eb9-bf4b-efe71cc06615
 author: Heilika
-status: published
+published: true
 createdAt: "2026-03-19T13:46:27.234Z"
 updatedAt: "2026-03-19T13:54:45.242Z"
 ---

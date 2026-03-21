@@ -9,7 +9,7 @@ heroImage: ./media/lead.jpg
 heroImageAlt: "A passenger airplane seen from below against a cloudy sky."
 id: d8024b39-f1aa-451a-8666-1a837f0f6d0c
 author: Heilika
-status: published
+published: true
 createdAt: "2026-03-19T13:36:28.541Z"
 updatedAt: "2026-03-19T13:39:24.028Z"
 ---

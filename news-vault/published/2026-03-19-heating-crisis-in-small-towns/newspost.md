@@ -7,7 +7,7 @@ heroImage: ./media/lead.jpg
 heroImageAlt: "A black-and-white dog resting on a stone bench."
 id: 5fa2402e-877b-4bc0-92d3-79a0faddbc9a
 author: Heilika
-status: published
+published: true
 createdAt: "2026-03-19T13:47:28.894Z"
 updatedAt: "2026-03-19T13:54:42.278Z"
 ---
