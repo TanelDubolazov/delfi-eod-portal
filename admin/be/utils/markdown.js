@@ -79,11 +79,11 @@ export function articleToMarkdown(article) {
     pubDate: article.publishDate || new Date().toISOString(),
     ...(article.updatedAt ? { updatedDate: article.updatedAt } : {}),
     ...(heroImage ? { heroImage } : {}),
+    ...(article.leadImageAlt ? { heroImageAlt: article.leadImageAlt } : {}),
     id: article.id,
     ...(article.author ? { author: article.author } : {}),
     published: Boolean(article.published),
     createdAt: article.createdAt,
-    updatedAt: article.updatedAt,
   };
 
   return matter.stringify(markdownBody, frontmatter);
@@ -98,7 +98,7 @@ export function parseMarkdown(content, options = {}) {
   const slug = options.slug || null;
   const isPublished = options.published ?? false;
   const pathPrefix = slug
-    ? `/uploads/${isPublished ? 'published' : 'drafts'}/${slug}/media/`
+    ? `/uploads/${slug}/media/`
     : './media/';
 
   const rawBody = parsed.content || '';
@@ -107,6 +107,7 @@ export function parseMarkdown(content, options = {}) {
   const title = meta.title || '';
   const lead = meta.lead ?? meta.description ?? '';
   const leadImage = toRuntimeMediaPath(meta.leadImage ?? meta.heroImage ?? null, pathPrefix);
+  const leadImageAlt = meta.leadImageAlt ?? meta.heroImageAlt ?? '';
   const publishDate =
     toIsoStringOrNull(meta.publishDate ?? meta.pubDate) || new Date().toISOString();
   const updatedAt = toIsoStringOrNull(meta.updatedAt ?? meta.updatedDate) || publishDate;
@@ -119,6 +120,7 @@ export function parseMarkdown(content, options = {}) {
     title,
     lead,
     leadImage,
+    leadImageAlt,
     author: meta.author || null,
     published: Boolean(meta.published ?? isPublished),
     publishDate,

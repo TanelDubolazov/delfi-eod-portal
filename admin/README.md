@@ -67,7 +67,10 @@ cd fe && npm run dev
 
 ## Storage format
 
-Each article lives in `news-vault/<status>/<slug>/newspost.md`:
+Each article lives in `news-vault/<slug>/`:
+
+- `live.md` is the published version used by Astro.
+- `draft.md` is the editable pending version in admin.
 
 ```
 ---
@@ -81,4 +84,4 @@ heroImage: "./media/lead.jpg"
 Markdown body content
 ```
 
-Images are stored alongside in `news-vault/<status>/<slug>/media/`.
+Images are stored alongside in `news-vault/<slug>/media/`.

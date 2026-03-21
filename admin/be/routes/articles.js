@@ -23,7 +23,7 @@ articlesRouter.get("/:id", (req, res) => {
 });
 
 articlesRouter.post("/", (req, res) => {
-  const { title, lead, leadImage, body, images, author } = req.body;
+  const { title, lead, leadImage, leadImageAlt, body, images, author } = req.body;
   if (!title) return res.status(400).json({ error: "Title is required" });
 
   const article = {
@@ -31,6 +31,7 @@ articlesRouter.post("/", (req, res) => {
     title,
     lead: lead || "",
     leadImage: leadImage || null,
+    leadImageAlt: leadImageAlt || "",
     body: body || "",
     images: images || [],
     author: author || null,
@@ -40,8 +41,8 @@ articlesRouter.post("/", (req, res) => {
     updatedAt: new Date().toISOString(),
   };
 
-  saveArticle(article);
-  res.status(201).json(article);
+  const saved = saveArticle(article, "draft");
+  res.status(201).json(saved);
 });
 
 articlesRouter.put("/:id", (req, res) => {
@@ -56,8 +57,15 @@ articlesRouter.put("/:id", (req, res) => {
     updatedAt: new Date().toISOString(),
   };
 
-  saveArticle(updated);
-  res.json(updated);
+  const targetVersion = existing.published ? "draft" : "draft";
+  const saved = saveArticle(
+    {
+      ...updated,
+      published: targetVersion === "live",
+    },
+    targetVersion,
+  );
+  res.json(saved);
 });
 
 articlesRouter.delete("/:id", (req, res) => {
@@ -69,20 +77,28 @@ articlesRouter.delete("/:id", (req, res) => {
 articlesRouter.post("/:id/publish", (req, res) => {
   const article = getArticle(req.params.id);
   if (!article) return res.status(404).json({ error: "Article not found" });
+
+  const now = new Date().toISOString();
+  const wasPublished = Boolean(article.published);
   article.published = true;
-  article.publishDate = new Date().toISOString();
-  article.updatedAt = new Date().toISOString();
+  article.publishDate = wasPublished
+    ? article.publishDate || now
+    : now;
+  article.updatedAt = now;
   moveArticleFolder(article.slug, "published");
-  saveArticle(article);
-  res.json(article);
+
+  const saved = saveArticle(article, "live");
+  res.json(saved);
 });
 
 articlesRouter.post("/:id/unpublish", (req, res) => {
   const article = getArticle(req.params.id);
   if (!article) return res.status(404).json({ error: "Article not found" });
+
   article.published = false;
   article.updatedAt = new Date().toISOString();
   moveArticleFolder(article.slug, "drafts");
-  saveArticle(article);
-  res.json(article);
+
+  const updated = getArticle(article.id);
+  res.json(updated || article);
 });

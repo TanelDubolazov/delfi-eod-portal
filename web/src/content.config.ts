@@ -13,16 +13,16 @@ function assertSafeSlug(slug: string) {
 }
 
 const news = defineCollection({
-  // Load Markdown files in the `news-vault/published` directory.
+  // Load published markdown files from per-article folders.
   loader: glob({
-    base: "../news-vault/published",
-    pattern: "**/newspost.md",
+    base: "../news-vault",
+    pattern: "**/live.md",
     generateId: ({ entry, data }) => {
       if (typeof data.slug === "string" && data.slug.length > 0) {
         assertSafeSlug(data.slug);
         return data.slug;
       }
-      const fallbackSlug = entry.replace(/[\\/]newspost\.md$/, "");
+      const fallbackSlug = entry.replace(/[\\/]live\.md$/, "");
       assertSafeSlug(fallbackSlug);
       return fallbackSlug;
     },

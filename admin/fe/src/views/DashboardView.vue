@@ -9,6 +9,33 @@ const loading = ref(true);
 const alertActive = ref(false);
 const alertLoading = ref(false);
 
+function articleStatus(article: any) {
+  if (article.published && article.hasPendingChanges) {
+    return {
+      label: 'Published + Changes Pending',
+      className: 'badge-pending',
+    };
+  }
+
+  if (article.published) {
+    return {
+      label: 'Published',
+      className: 'badge-published',
+    };
+  }
+
+  return {
+    label: 'Draft',
+    className: 'badge-draft',
+  };
+}
+
+function publishActionLabel(article: any) {
+  if (article.published && article.hasPendingChanges) return 'Publish update';
+  if (article.published) return 'Unpublish';
+  return 'Publish';
+}
+
 async function fetchArticles() {
   loading.value = true;
   try {
@@ -43,7 +70,7 @@ async function toggleAlert() {
 }
 
 async function togglePublish(article: any) {
-  const endpoint = article.published
+  const endpoint = article.published && !article.hasPendingChanges
     ? `/articles/${article.id}/unpublish`
     : `/articles/${article.id}/publish`;
   await api.post(endpoint);
@@ -57,6 +84,7 @@ async function deleteArticle(article: any) {
 }
 
 function formatDate(dateStr: string) {
+  if (!dateStr) return '—';
   return new Date(dateStr).toLocaleDateString('et-EE', {
     day: '2-digit',
     month: '2-digit',
@@ -103,10 +131,20 @@ onMounted(async () => {
       >
         <div class="article-info">
           <div class="article-meta">
-            <span class="badge" :class="article.published ? 'badge-published' : 'badge-draft'">
-              {{ article.published ? 'Published' : 'Draft' }}
+            <span class="badge" :class="articleStatus(article).className">
+              {{ articleStatus(article).label }}
             </span>
-            <span class="article-date">{{ formatDate(article.updatedAt) }}</span>
+            <div class="article-dates">
+              <span v-if="article.published" class="article-date">
+                Published: {{ formatDate(article.publishDate) }}
+              </span>
+              <span v-if="article.published && article.hasPendingChanges" class="article-date">
+                Draft saved: {{ formatDate(article.updatedAt) }}
+              </span>
+              <span v-if="!article.published" class="article-date">
+                Last saved: {{ formatDate(article.updatedAt) }}
+              </span>
+            </div>
           </div>
           <h3 class="article-title">{{ article.title }}</h3>
           <p class="article-lead" v-if="article.lead">{{ article.lead }}</p>
@@ -122,7 +160,7 @@ onMounted(async () => {
             class="btn-secondary btn-sm"
             @click="togglePublish(article)"
           >
-            {{ article.published ? 'Unpublish' : 'Publish' }}
+            {{ publishActionLabel(article) }}
           </button>
           <button
             class="btn-danger btn-sm"
@@ -181,9 +219,15 @@ onMounted(async () => {
 
 .article-meta {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
   margin-bottom: 6px;
+}
+
+.article-dates {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
 .badge {
@@ -203,6 +247,11 @@ onMounted(async () => {
 .badge-draft {
   background: #fef3c7;
   color: #92400e;
+}
+
+.badge-pending {
+  background: #dbeafe;
+  color: #1e40af;
 }
 
 .badge-locked {

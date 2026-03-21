@@ -16,14 +16,22 @@ const articleSlug = ref('');
 const markdownInput = ref<HTMLTextAreaElement | null>(null);
 const markdownEditor = ref<EasyMDE | null>(null);
 
+function toDatetimeLocalValue(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
 const form = ref({
   title: '',
   lead: '',
   leadImage: null as string | null,
+  leadImageAlt: '',
   body: '',
   author: '',
   published: false,
-  publishDate: new Date().toISOString().slice(0, 16),
+  publishDate: toDatetimeLocalValue(new Date().toISOString()),
 });
 
 function setupMarkdownEditor() {
@@ -64,10 +72,11 @@ onMounted(async () => {
       form.value.title = data.title;
       form.value.lead = data.lead;
       form.value.leadImage = data.leadImage;
+      form.value.leadImageAlt = data.leadImageAlt || '';
       form.value.body = data.body;
       form.value.author = data.author || '';
       form.value.published = data.published;
-      form.value.publishDate = data.publishDate?.slice(0, 16) || '';
+      form.value.publishDate = toDatetimeLocalValue(data.publishDate) || '';
       // populate textarea before EasyMDE init so CodeMirror gets the content
       if (markdownInput.value) markdownInput.value.value = data.body || '';
     } catch (err: any) {
@@ -98,6 +107,7 @@ async function save() {
       title: form.value.title,
       lead: form.value.lead,
       leadImage: form.value.leadImage,
+      leadImageAlt: form.value.leadImageAlt,
       body: form.value.body,
       author: form.value.author || null,
       published: form.value.published,
@@ -217,6 +227,15 @@ async function uploadImage(event: Event, context: 'lead' | 'article') {
             Remove
           </button>
         </div>
+      </div>
+
+      <div class="form-group">
+        <label>Lead Image Alt Text</label>
+        <input
+          v-model="form.leadImageAlt"
+          type="text"
+          placeholder="Short image description for accessibility"
+        />
       </div>
 
       <div class="form-group">
