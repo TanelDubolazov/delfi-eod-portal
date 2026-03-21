@@ -9,7 +9,7 @@ heroImage: ./media/lead.jpg
 heroImageAlt: "A sailboat on rough waves in windy conditions."
 id: 3094622d-7138-41a2-b5a2-b392400ac8ff
 author: Heilika
-published: true
+status: published
 createdAt: "2026-03-19T13:50:25.582Z"
 updatedAt: "2026-03-19T13:54:51.700Z"
 ---

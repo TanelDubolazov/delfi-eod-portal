@@ -13,16 +13,18 @@ function assertSafeSlug(slug: string) {
 }
 
 const news = defineCollection({
-  // Load Markdown files in the `news-vault/published` directory.
+  // Load Markdown files in the `news-vault` directory.
   loader: glob({
-    base: "../news-vault/published",
+    base: "../news-vault",
     pattern: "**/newspost.md",
     generateId: ({ entry, data }) => {
       if (typeof data.slug === "string" && data.slug.length > 0) {
         assertSafeSlug(data.slug);
         return data.slug;
       }
-      const fallbackSlug = entry.replace(/[\\/]newspost\.md$/, "");
+      const fallbackSlug = entry
+        .replace(/[\\/]newspost\.md$/, "")
+        .replace(/^(?:drafts|published)[\\/]/, "");
       assertSafeSlug(fallbackSlug);
       return fallbackSlug;
     },
@@ -32,6 +34,7 @@ const news = defineCollection({
     z.object({
       title: z.string(),
       description: z.string(),
+      status: z.enum(["draft", "published"]),
       // Transform string to Date object
       pubDate: z.coerce.date(),
       updatedDate: z.coerce.date().optional(),
