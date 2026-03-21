@@ -1,37 +1,11 @@
 <script setup lang="ts">
-import { computed } from 'vue';
-import { RouterView, useRoute, useRouter } from 'vue-router';
+import { RouterView } from 'vue-router';
 import NavBar from './components/NavBar.vue';
-import { useActiveServer } from './useActiveServer';
-
-const route = useRoute();
-const router = useRouter();
-const { activeServerId, workOffline } = useActiveServer();
-
-const showPrompt = computed(() =>
-  route.name &&
-  route.name !== 'Login' &&
-  route.name !== 'ServerConnection' &&
-  !activeServerId.value &&
-  !workOffline.value
-);
-
-function chooseOffline() { workOffline.value = true; }
 </script>
 
 <template>
   <div id="app">
     <NavBar />
-    <div v-if="showPrompt" class="server-prompt-overlay">
-      <div class="server-prompt">
-        <h3>No active server</h3>
-        <p>Without an active server, publishing articles and toggling alerts won't deploy to your site.</p>
-        <div class="server-prompt-actions">
-          <button class="btn-primary" @click="router.push('/server')">Choose Server</button>
-          <button class="btn-secondary" @click="chooseOffline">Work Offline</button>
-        </div>
-      </div>
-    </div>
     <main class="main-content">
       <RouterView />
     </main>
@@ -128,41 +102,5 @@ input:focus, textarea:focus {
   border: none;
   border-radius: 0;
   box-shadow: none;
-}
-
-.server-prompt-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0,0,0,0.4);
-  z-index: 500;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.server-prompt {
-  background: var(--surface);
-  border-radius: var(--radius);
-  padding: 32px;
-  max-width: 420px;
-  width: 90%;
-  box-shadow: 0 8px 32px rgba(0,0,0,0.18);
-}
-
-.server-prompt h3 {
-  font-size: 20px;
-  margin-bottom: 10px;
-}
-
-.server-prompt p {
-  color: var(--text-secondary);
-  font-size: 14px;
-  margin-bottom: 24px;
-  line-height: 1.6;
-}
-
-.server-prompt-actions {
-  display: flex;
-  gap: 10px;
 }
 </style>

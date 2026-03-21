@@ -3,7 +3,6 @@ dist/
 .pids/
 /.vscode/
 **/.vite/
-.astro
 
 # Admin local data
 .admin/
