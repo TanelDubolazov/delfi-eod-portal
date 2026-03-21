@@ -2,6 +2,12 @@ import { ref, watch } from 'vue';
 
 const activeServerId = ref<string | null>(localStorage.getItem('activeServerId'));
 const workOffline = ref(localStorage.getItem('workOffline') === 'true');
+const deployError = ref<{
+  action: string;
+  code: string;
+  type: 'connection' | 'access' | 'build';
+  reversed: boolean;
+} | null>(null);
 
 watch(activeServerId, val => {
   if (val) {
@@ -19,5 +25,5 @@ watch(workOffline, val => {
 });
 
 export function useActiveServer() {
-  return { activeServerId, workOffline };
+  return { activeServerId, workOffline, deployError };
 }

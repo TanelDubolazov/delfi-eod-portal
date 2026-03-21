@@ -3,6 +3,7 @@ import { ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import api from '../api';
 import { useActiveServer } from '../useActiveServer';
+import DeployErrorBanner from '../components/DeployErrorBanner.vue';
 
 const router = useRouter();
 const { activeServerId, workOffline } = useActiveServer();
@@ -177,6 +178,8 @@ onMounted(fetchServers);
       </div>
       <button class="btn-close" @click="router.back()">✕</button>
     </div>
+
+    <DeployErrorBanner :show-change-server="false" />
 
     <div v-if="loading" class="loading">Loading...</div>
 

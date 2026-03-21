@@ -5,14 +5,18 @@ import api from '../api';
 import { useActiveServer } from '../useActiveServer';
 
 const router = useRouter();
-const { activeServerId } = useActiveServer();
+const { activeServerId, deployError } = useActiveServer();
 const articles = ref<any[]>([]);
 const loading = ref(true);
 const alertActive = ref(false);
 const alertLoading = ref(false);
 const busyArticles = ref<Record<string, string>>({});
 
-const toast = ref<{ visible: boolean; status: 'deploying' | 'success' | 'error'; message: string }>({
+const toast = ref<{
+  visible: boolean;
+  status: 'deploying' | 'success';
+  message: string;
+}>({
   visible: false,
   status: 'deploying',
   message: '',
@@ -20,7 +24,7 @@ const toast = ref<{ visible: boolean; status: 'deploying' | 'success' | 'error';
 
 let toastTimer: ReturnType<typeof setTimeout> | null = null;
 
-function showToast(status: 'deploying' | 'success' | 'error', message: string) {
+function showToast(status: 'deploying' | 'success', message: string) {
   if (toastTimer) clearTimeout(toastTimer);
   toast.value = { visible: true, status, message };
   if (status !== 'deploying') {
@@ -28,19 +32,36 @@ function showToast(status: 'deploying' | 'success' | 'error', message: string) {
   }
 }
 
-async function triggerDeploy() {
+function classifyError(msg: string): 'connection' | 'access' | 'build' {
+  const m = msg.toLowerCase();
+  if (m.includes('econnrefused') || m.includes('etimedout') || m.includes('enotfound') || m.includes('timeout') || m.includes('connect')) return 'connection';
+  if (m.includes('accessdenied') || m.includes('forbidden') || m.includes('not authorized') || m.includes('403')) return 'access';
+  return 'build';
+}
+
+function copyError() {
+  if (deployError.value) navigator.clipboard.writeText(deployError.value.code);
+}
+
+type DeployOutcome = { ok: true } | { ok: false; type: 'connection' | 'access' | 'build'; code: string };
+
+async function triggerDeploy(): Promise<DeployOutcome> {
   const id = activeServerId.value;
-  if (!id) return;
+  if (!id) return { ok: true };
+  deployError.value = null;
   showToast('deploying', 'Building and deploying...');
   try {
     const { data } = await api.post(`/server/${id}/deploy`);
     if (data.success) {
       showToast('success', `Deployed in ${(data.ms / 1000).toFixed(1)}s`);
-    } else {
-      showToast('error', data.details || 'Deploy failed');
+      return { ok: true };
     }
+    toast.value.visible = false;
+    return { ok: false, type: classifyError(data.details || ''), code: data.details || 'Unknown error' };
   } catch (err: any) {
-    showToast('error', err.response?.data?.error || 'Deploy failed');
+    const msg = err.response?.data?.error || err.message || 'Unknown error';
+    toast.value.visible = false;
+    return { ok: false, type: classifyError(msg), code: msg };
   }
 }
 
@@ -49,8 +70,8 @@ async function fetchArticles() {
   try {
     const { data } = await api.get('/articles');
     articles.value = data;
-  } catch (err) {
-    console.error('Failed to fetch articles:', err);
+  } catch {
+    // ignore
   } finally {
     loading.value = false;
   }
@@ -60,8 +81,8 @@ async function fetchAlert() {
   try {
     const { data } = await api.get('/alert');
     alertActive.value = data.active;
-  } catch (err) {
-    console.error('Failed to fetch alert state:', err);
+  } catch {
+    // ignore
   }
 }
 
@@ -70,24 +91,39 @@ async function toggleAlert() {
   try {
     const { data } = await api.post('/alert/toggle');
     alertActive.value = data.active;
-    await triggerDeploy();
-  } catch (err) {
-    console.error('Failed to toggle alert:', err);
+    const result = await triggerDeploy();
+    if (!result.ok) {
+      const { data: reverted } = await api.post('/alert/toggle');
+      alertActive.value = reverted.active;
+      deployError.value = { action: 'toggling alert banner', code: result.code, type: result.type, reversed: true };
+    }
+  } catch {
+    // ignore
   } finally {
     alertLoading.value = false;
   }
 }
 
 async function togglePublish(article: any) {
-  const action = article.published ? 'Unpublishing...' : 'Publishing...';
+  const wasPublished = article.published;
+  const action = wasPublished ? 'Unpublishing...' : 'Publishing...';
   busyArticles.value[article.id] = action;
   try {
-    const endpoint = article.published
+    const endpoint = wasPublished
       ? `/articles/${article.id}/unpublish`
       : `/articles/${article.id}/publish`;
     await api.post(endpoint);
     await fetchArticles();
-    await triggerDeploy();
+    const result = await triggerDeploy();
+    if (!result.ok) {
+      const reverseEndpoint = wasPublished
+        ? `/articles/${article.id}/publish`
+        : `/articles/${article.id}/unpublish`;
+      await api.post(reverseEndpoint);
+      await fetchArticles();
+      const actionLabel = wasPublished ? 'unpublishing' : 'publishing';
+      deployError.value = { action: `${actionLabel} "${article.title}"`, code: result.code, type: result.type, reversed: true };
+    }
   } finally {
     delete busyArticles.value[article.id];
   }
@@ -99,7 +135,10 @@ async function deleteArticle(article: any) {
   try {
     await api.delete(`/articles/${article.id}`);
     await fetchArticles();
-    await triggerDeploy();
+    const result = await triggerDeploy();
+    if (!result.ok) {
+      deployError.value = { action: `deleting "${article.title}"`, code: result.code, type: result.type, reversed: false };
+    }
   } finally {
     delete busyArticles.value[article.id];
   }
@@ -131,18 +170,14 @@ onMounted(async () => {
     <div class="dashboard-header">
       <h1>Articles</h1>
       <div style="display:flex; gap: 8px; align-items: center;">
-        <button
-          class="btn-primary"
-          @click="toggleAlert"
-          :disabled="alertLoading"
-        >
+        <button class="btn-primary" @click="toggleAlert" :disabled="alertLoading">
           {{ alertLoading ? 'Updating...' : (alertActive ? 'Deactivate Critical Alert' : 'Activate Critical Alert') }}
         </button>
-        <button class="btn-primary" @click="router.push('/articles/new')">
-          + New Article
-        </button>
+        <button class="btn-primary" @click="router.push('/articles/new')">+ New Article</button>
       </div>
     </div>
+
+    <DeployErrorBanner />
 
     <div v-if="loading" class="loading">Loading articles...</div>
 
@@ -324,7 +359,6 @@ onMounted(async () => {
 
 .deploy-toast--deploying { background: #2563eb; }
 .deploy-toast--success   { background: #16a34a; }
-.deploy-toast--error     { background: #dc2626; }
 
 .deploy-spinner {
   width: 14px;
