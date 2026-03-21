@@ -5,7 +5,7 @@ import NewsPost from '../layouts/NewsPost.astro';
 export async function getStaticPaths() {
 	const posts = await getCollection('news');
 	return posts.map((post) => ({
-		params: { slug: post.id },
+		params: { slug: `news/${post.id}` },
 		props: post,
 	}));
 }
