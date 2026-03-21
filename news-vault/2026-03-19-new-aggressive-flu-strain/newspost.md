@@ -9,7 +9,7 @@ heroImage: ./media/lead.jpg
 heroImageAlt: "A sick person in a scarf pouring cough syrup beside a teddy bear."
 id: 06d0a9ff-2fba-48ff-b796-6207b15bbc22
 author: Heilika
-published: true
+status: published
 createdAt: "2026-03-19T13:45:33.761Z"
 updatedAt: "2026-03-19T13:54:48.602Z"
 ---

@@ -7,7 +7,7 @@ heroImage: ./media/lead.jpg
 heroImageAlt: "Close-up of barbed wire."
 id: 04fa4069-7939-45b2-a75c-d29f9f700d93
 author: Heilika
-published: true
+status: published
 createdAt: "2026-03-19T13:43:21.933Z"
 updatedAt: "2026-03-19T13:44:17.337Z"
 ---

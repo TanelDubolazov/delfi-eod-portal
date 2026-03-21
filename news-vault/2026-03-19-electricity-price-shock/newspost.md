@@ -9,7 +9,7 @@ heroImage: ./media/lead.jpg
 heroImageAlt: "High-voltage electricity lines against a clear blue sky."
 id: 1d80fbfc-9791-4103-ab1d-5334ef919ad2
 author: Heilika
-published: true
+status: published
 createdAt: "2026-03-19T13:38:29.656Z"
 updatedAt: "2026-03-19T13:39:44.330Z"
 ---

@@ -6,7 +6,7 @@ updatedDate: "2026-03-20T15:19:09.341Z"
 heroImage: ./media/lead.jpg
 id: 6cd2286d-fd07-41a9-bb9c-9ed250cc0350
 author: Heilika
-published: true
+status: published
 createdAt: "2026-03-19T13:54:29.306Z"
 updatedAt: "2026-03-20T15:19:09.341Z"
 ---

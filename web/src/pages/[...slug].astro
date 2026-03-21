@@ -3,7 +3,7 @@ import { getCollection, render } from 'astro:content';
 import NewsPost from '../layouts/NewsPost.astro';
 
 export async function getStaticPaths() {
-	const posts = await getCollection('news');
+	const posts = await getCollection('news', ({ data }) => data.status === 'published');
 	return posts.map((post) => ({
 		params: { slug: `news-vault/${post.id}` },
 		props: post,
