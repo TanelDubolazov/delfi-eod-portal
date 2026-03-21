@@ -8,11 +8,17 @@ const router = useRouter();
 const loading = ref(true);
 const saving = ref(false);
 const testing = ref<string | null>(null);
+const deploying = ref<string | null>(null);
 const error = ref('');
-const testResults = ref<Record<string, { success: boolean; ms: number; details: string }>>({});
+const testResults = ref<Record<string, { success: boolean; ms: number; details: string }>>({})
+const deployResults = ref<Record<string, { success: boolean; ms: number; details: string }>>({})
 
 function getTestResult(id: string) {
   return testResults.value[id] || null;
+}
+
+function getDeployResult(id: string) {
+  return deployResults.value[id] || null;
 }
 
 interface Server {
@@ -137,6 +143,19 @@ async function testServer(id: string) {
   }
 }
 
+async function deployServer(id: string) {
+  deploying.value = id;
+  delete deployResults.value[id];
+  try {
+    const { data } = await api.post(`/server/${id}/deploy`);
+    deployResults.value[id] = data;
+  } catch (err: any) {
+    deployResults.value[id] = { success: false, ms: 0, details: err.response?.data?.error || 'Deploy failed' };
+  } finally {
+    deploying.value = null;
+  }
+}
+
 onMounted(fetchServers);
 </script>
 
@@ -160,8 +179,11 @@ onMounted(fetchServers);
             <span class="type-badge">{{ s.type.toUpperCase() }}</span>
           </div>
           <div class="server-actions">
-            <button class="btn-secondary btn-sm" @click="testServer(s.id)" :disabled="testing === s.id">
+            <button class="btn-secondary btn-sm" @click="testServer(s.id)" :disabled="testing === s.id || deploying === s.id">
               {{ testing === s.id ? 'Testing...' : 'Test' }}
+            </button>
+            <button class="btn-primary btn-sm" @click="deployServer(s.id)" :disabled="deploying === s.id || testing === s.id">
+              {{ deploying === s.id ? 'Deploying...' : 'Deploy' }}
             </button>
             <button class="btn-secondary btn-sm" @click="editing === s.id ? cancelEdit() : startEdit(s)">{{ editing === s.id ? 'Close' : 'Edit' }}</button>
             <button class="btn-danger btn-sm" @click="deleteServer(s.id)">Delete</button>
@@ -170,6 +192,11 @@ onMounted(fetchServers);
             <strong>{{ getTestResult(s.id)?.success ? 'Connected' : 'Failed' }}</strong>
             <span class="test-ms">({{ getTestResult(s.id)?.ms }}ms)</span>
             — {{ getTestResult(s.id)?.details }}
+          </div>
+          <div v-if="getDeployResult(s.id)" :class="['test-result', getDeployResult(s.id)?.success ? 'test-success' : 'test-fail']">
+            <strong>{{ getDeployResult(s.id)?.success ? 'Deployed' : 'Deploy failed' }}</strong>
+            <span class="test-ms">({{ ((getDeployResult(s.id)?.ms ?? 0) / 1000).toFixed(1) }}s)</span>
+            — {{ getDeployResult(s.id)?.details }}
           </div>
         </div>
       </div>
@@ -200,8 +227,8 @@ onMounted(fetchServers);
 
           <template v-if="type === 's3'">
             <div class="form-group">
-              <label>Endpoint URL</label>
-              <input v-model="s3.endpoint" placeholder="https://s3.eu-central-1.amazonaws.com" />
+              <label>Endpoint URL <span class="optional">(optional, leave blank for AWS)</span></label>
+              <input v-model="s3.endpoint" placeholder="https://minio.example.com" />
             </div>
             <div class="form-group">
               <label>Bucket Name</label>
