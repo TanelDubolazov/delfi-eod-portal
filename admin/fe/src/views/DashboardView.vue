@@ -8,6 +8,86 @@ const articles = ref<any[]>([]);
 const loading = ref(true);
 const alertActive = ref(false);
 const alertLoading = ref(false);
+const lockByArticleId = ref<Record<string, any>>({});
+const lockNotice = ref('');
+const editChecking = ref<Record<string, boolean>>({});
+
+function getInstallationId() {
+  const key = 'eod-installation-id';
+  const existing = localStorage.getItem(key);
+  if (existing) return existing;
+  const created = crypto.randomUUID();
+  localStorage.setItem(key, created);
+  return created;
+}
+
+const installationId = getInstallationId();
+
+function lockFor(article: any) {
+  return lockByArticleId.value[article.id] || null;
+}
+
+function isLockedByOther(article: any) {
+  const lock = lockFor(article);
+  return Boolean(lock && lock.installationId && lock.installationId !== installationId);
+}
+
+function lockBadgeLabel(article: any) {
+  const lock = lockFor(article);
+  if (!lock) return '';
+  if (lock.installationId === installationId) return 'Locked (this device)';
+  return 'Locked (other device)';
+}
+
+function lockOwnerHint(article: any) {
+  const lock = lockFor(article);
+  if (!lock || !lock.installationId) return '';
+  return String(lock.installationId).slice(0, 8);
+}
+
+function lockBadgeClass(article: any) {
+  const lock = lockFor(article);
+  if (!lock) return '';
+  return lock.installationId === installationId ? 'badge-locked-self' : 'badge-locked-other';
+}
+
+async function fetchArticleLocks(articleList: any[]) {
+  const entries = await Promise.all(
+    articleList.map(async (article) => {
+      try {
+        const { data } = await api.get(`/articles/${article.id}/lock`);
+        return [article.id, data.lock || null] as const;
+      } catch {
+        return [article.id, null] as const;
+      }
+    }),
+  );
+
+  lockByArticleId.value = Object.fromEntries(entries);
+}
+
+async function openEditor(article: any) {
+  lockNotice.value = '';
+  editChecking.value = { ...editChecking.value, [article.id]: true };
+
+  try {
+    const { data } = await api.get(`/articles/${article.id}/lock`);
+    const lock = data.lock || null;
+    lockByArticleId.value = { ...lockByArticleId.value, [article.id]: lock };
+
+    if (lock && lock.installationId && lock.installationId !== installationId) {
+      const ownerHint = String(lock.installationId).slice(0, 8);
+      lockNotice.value = `This article is currently being edited on another device (${ownerHint}).`;
+      return;
+    }
+
+    router.push(`/articles/${article.id}`);
+  } catch {
+    lockNotice.value = 'Could not verify lock state. Please try again.';
+  } finally {
+    editChecking.value = { ...editChecking.value, [article.id]: false };
+  }
+}
 
 function articleStatus(article: any) {
   if (article.published && article.hasPendingChanges) {
@@ -41,6 +121,7 @@ async function fetchArticles() {
   try {
     const { data } = await api.get('/articles');
     articles.value = data;
+    await fetchArticleLocks(data);
   } catch (err) {
     console.error('Failed to fetch articles:', err);
   } finally {
@@ -70,6 +151,7 @@ async function toggleAlert() {
 }
 
 async function togglePublish(article: any) {
+  if (isLockedByOther(article)) return;
   const endpoint = article.published && !article.hasPendingChanges
     ? `/articles/${article.id}/unpublish`
     : `/articles/${article.id}/publish`;
@@ -78,6 +160,7 @@ async function togglePublish(article: any) {
 }
 
 async function deleteArticle(article: any) {
+  if (isLockedByOther(article)) return;
   if (!confirm(`Delete "${article.title}"?`)) return;
   await api.delete(`/articles/${article.id}`);
   await fetchArticles();
@@ -119,11 +202,13 @@ onMounted(async () => {
 
     <div v-if="loading" class="loading">Loading articles...</div>
 
-    <div v-else-if="articles.length === 0" class="empty-state">
+    <div v-else-if="lockNotice" class="error-msg">{{ lockNotice }}</div>
+
+    <div v-if="!loading && articles.length === 0" class="empty-state">
       <p>No articles yet. Create your first crisis update.</p>
     </div>
 
-    <div v-else class="articles-list">
+    <div v-if="!loading && articles.length > 0" class="articles-list">
       <div
         v-for="article in articles"
         :key="article.id"
@@ -133,6 +218,9 @@ onMounted(async () => {
           <div class="article-meta">
             <span class="badge" :class="articleStatus(article).className">
               {{ articleStatus(article).label }}
+            </span>
+            <span v-if="lockFor(article)" class="badge" :class="lockBadgeClass(article)">
+              {{ lockBadgeLabel(article) }}
             </span>
             <div class="article-dates">
               <span v-if="article.published" class="article-date">
@@ -148,23 +236,32 @@ onMounted(async () => {
           </div>
           <h3 class="article-title">{{ article.title }}</h3>
           <p class="article-lead" v-if="article.lead">{{ article.lead }}</p>
+          <p v-if="isLockedByOther(article)" class="article-lock-note">
+            This article is currently being edited on another device ({{ lockOwnerHint(article) }}).
+          </p>
         </div>
         <div class="article-actions">
           <button
             class="btn-primary btn-sm"
-            @click="router.push(`/articles/${article.id}`)"
+            @click="openEditor(article)"
+            :disabled="isLockedByOther(article)"
+            :title="isLockedByOther(article) ? 'Locked by another device' : ''"
           >
-            Edit
+            {{ editChecking[article.id] ? 'Checking...' : 'Edit' }}
           </button>
           <button
             class="btn-secondary btn-sm"
             @click="togglePublish(article)"
+            :disabled="isLockedByOther(article)"
+            :title="isLockedByOther(article) ? 'Locked by another device' : ''"
           >
             {{ publishActionLabel(article) }}
           </button>
           <button
             class="btn-danger btn-sm"
             @click="deleteArticle(article)"
+            :disabled="isLockedByOther(article)"
+            :title="isLockedByOther(article) ? 'Locked by another device' : ''"
           >
             Delete
           </button>
@@ -259,6 +356,16 @@ onMounted(async () => {
   color: #991b1b;
 }
 
+.badge-locked-self {
+  background: #e0f2fe;
+  color: #075985;
+}
+
+.badge-locked-other {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
 .article-date {
   color: var(--text-secondary);
   font-size: 13px;
@@ -275,6 +382,12 @@ onMounted(async () => {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.article-lock-note {
+  color: #991b1b;
+  font-size: 13px;
+  margin-top: 6px;
 }
 
 .article-actions {
@@ -301,5 +414,15 @@ onMounted(async () => {
   text-align: center;
   padding: 40px;
   color: var(--text-secondary);
+}
+
+.error-msg {
+  background: #fef2f2;
+  color: var(--danger);
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  border: 1px solid #fecaca;
+  margin-bottom: 16px;
 }
 </style>
