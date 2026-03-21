@@ -17,23 +17,18 @@ const upload = multer({
 
 function resolveArticleLocation(articleSlug, createIfMissing = false) {
   const newsVault = getNewsVault();
-  const statuses = ["published", "drafts"];
-
-  for (const status of statuses) {
-    const articleDir = path.join(newsVault, status, articleSlug);
-    if (fs.existsSync(articleDir)) {
-      const mediaDir = path.join(articleDir, "media");
-      if (!fs.existsSync(mediaDir)) fs.mkdirSync(mediaDir, { recursive: true });
-      return { status, mediaDir };
-    }
+  const articleDir = path.join(newsVault, articleSlug);
+  if (fs.existsSync(articleDir)) {
+    const mediaDir = path.join(articleDir, "media");
+    if (!fs.existsSync(mediaDir)) fs.mkdirSync(mediaDir, { recursive: true });
+    return { mediaDir };
   }
 
   if (!createIfMissing) return null;
 
-  const draftArticleDir = path.join(newsVault, "drafts", articleSlug);
-  const mediaDir = path.join(draftArticleDir, "media");
+  const mediaDir = path.join(articleDir, "media");
   fs.mkdirSync(mediaDir, { recursive: true });
-  return { status: "drafts", mediaDir };
+  return { mediaDir };
 }
 
 function nextImageFilename(mediaDir) {
@@ -60,7 +55,7 @@ imagesRouter.post("/upload", upload.single("image"), async (req, res) => {
 
   try {
     const imageContext = context || "article";
-    const { status, mediaDir } = resolveArticleLocation(articleSlug, true);
+    const { mediaDir } = resolveArticleLocation(articleSlug, true);
 
     const filename =
       imageContext === "lead" ? "lead.jpg" : nextImageFilename(mediaDir);
@@ -80,7 +75,7 @@ imagesRouter.post("/upload", upload.single("image"), async (req, res) => {
     res.json({
       filename,
       originalName: req.file.originalname,
-      url: `/uploads/${status}/${articleSlug}/media/${filename}`,
+      url: `/uploads/${articleSlug}/media/${filename}`,
       size: req.file.size,
       context: imageContext,
       uploadedAt: new Date().toISOString(),
@@ -94,12 +89,12 @@ imagesRouter.post("/upload", upload.single("image"), async (req, res) => {
 imagesRouter.get("/:articleSlug", (req, res) => {
   const location = resolveArticleLocation(req.params.articleSlug);
   if (!location) return res.json([]);
-  const { status, mediaDir } = location;
+  const { mediaDir } = location;
 
   const files = fs.readdirSync(mediaDir).filter((f) => !f.startsWith("."));
   const images = files.map((f) => ({
     filename: f,
-    url: `/uploads/${status}/${req.params.articleSlug}/media/${f}`,
+    url: `/uploads/${req.params.articleSlug}/media/${f}`,
     size: fs.statSync(path.join(mediaDir, f)).size,
   }));
   res.json(images);

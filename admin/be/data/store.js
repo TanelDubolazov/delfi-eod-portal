@@ -6,78 +6,205 @@ import { articleToMarkdown, parseMarkdown } from "../utils/markdown.js";
 export { slugify };
 
 let NEWS_VAULT;
+const LEGACY_DIRS = new Set(["published", "drafts"]);
 
 export function initStore(baseDir) {
   NEWS_VAULT = path.join(baseDir, "news-vault");
   if (!fs.existsSync(NEWS_VAULT)) fs.mkdirSync(NEWS_VAULT, { recursive: true });
-  const publishedDir = path.join(NEWS_VAULT, "published");
-  const draftsDir = path.join(NEWS_VAULT, "drafts");
-  if (!fs.existsSync(publishedDir))
-    fs.mkdirSync(publishedDir, { recursive: true });
-  if (!fs.existsSync(draftsDir)) fs.mkdirSync(draftsDir, { recursive: true });
 }
 
 export function getNewsVault() {
   return NEWS_VAULT;
 }
 
-export function getAllArticles() {
+function getArticlePaths(slug) {
+  const articleDir = path.join(NEWS_VAULT, slug);
+  return {
+    articleDir,
+    livePath: path.join(articleDir, "live.md"),
+    draftPath: path.join(articleDir, "draft.md"),
+    mediaDir: path.join(articleDir, "media"),
+  };
+}
+
+function getArticleSlugs() {
   if (!fs.existsSync(NEWS_VAULT)) return [];
-
-  const articles = [];
-  const subdirs = ["published", "drafts"];
-  for (const subdir of subdirs) {
-    const subPath = path.join(NEWS_VAULT, subdir);
-    if (!fs.existsSync(subPath)) continue;
-
-    const dirs = fs
-      .readdirSync(subPath, { withFileTypes: true })
-      .filter((d) => d.isDirectory())
-      .map((d) => d.name);
-
-    for (const dir of dirs) {
-      const mdPath = path.join(subPath, dir, "newspost.md");
-      if (!fs.existsSync(mdPath)) continue;
-      const content = fs.readFileSync(mdPath, "utf-8");
-      const article = parseMarkdown(content, {
-        slug: dir,
-        published: subdir === "published",
-      });
-      if (article) {
-        article.slug = dir;
-        articles.push(article);
-      }
-    }
-  }
-
-  return articles.sort(
-    (a, b) => new Date(b.publishDate) - new Date(a.publishDate),
-  );
+  return fs
+    .readdirSync(NEWS_VAULT, { withFileTypes: true })
+    .filter((d) => d.isDirectory())
+    .map((d) => d.name)
+    .filter((name) => !LEGACY_DIRS.has(name));
 }
 
-export function getArticle(id) {
-  // scans all dirs, not great for large vaults
-  const articles = getAllArticles();
-  return articles.find((a) => a.id === id) || null;
+function ensureArticleDirs(slug) {
+  const { articleDir, mediaDir } = getArticlePaths(slug);
+  if (!fs.existsSync(articleDir)) fs.mkdirSync(articleDir, { recursive: true });
+  if (!fs.existsSync(mediaDir)) fs.mkdirSync(mediaDir, { recursive: true });
 }
 
-export function getArticleBySlug(slug) {
-  const subdirs = ["published", "drafts"];
-  for (const subdir of subdirs) {
-    const mdPath = path.join(NEWS_VAULT, subdir, slug, "newspost.md");
-    if (!fs.existsSync(mdPath)) continue;
-    const content = fs.readFileSync(mdPath, "utf-8");
-    const article = parseMarkdown(content, {
-      slug,
-      published: subdir === "published",
-    });
-    if (article) article.slug = slug;
-    return article;
+function readVersion(slug, version) {
+  const { livePath, draftPath } = getArticlePaths(slug);
+  const filePath = version === "live" ? livePath : draftPath;
+  if (!fs.existsSync(filePath)) return null;
+
+  const content = fs.readFileSync(filePath, "utf-8");
+  const article = parseMarkdown(content, {
+    slug,
+    published: version === "live",
+  });
+
+  if (!article) return null;
+  article.slug = slug;
+  article.version = version;
+  return article;
+}
+
+function writeVersion(slug, version, article) {
+  ensureArticleDirs(slug);
+  const { livePath, draftPath } = getArticlePaths(slug);
+  const filePath = version === "live" ? livePath : draftPath;
+  const normalized = {
+    ...article,
+    slug,
+    published: version === "live",
+  };
+  const md = articleToMarkdown(normalized);
+  fs.writeFileSync(filePath, md);
+  return normalized;
+}
+
+function locateArticleById(id) {
+  for (const slug of getArticleSlugs()) {
+    const draft = readVersion(slug, "draft");
+    const live = readVersion(slug, "live");
+    if (draft?.id === id) return { slug, draft, live, matched: "draft" };
+    if (live?.id === id) return { slug, draft, live, matched: "live" };
   }
   return null;
 }
 
-export function saveArticle(article) {
+function toComparableArticle(article) {
+  if (!article) return null;
+
+  const normalizedPublishDate = (() => {
+    const date = new Date(article.publishDate || "");
+    if (Number.isNaN(date.getTime())) return article.publishDate || null;
+    return date.toISOString().slice(0, 16);
+  })();
+
+  return {
+    title: article.title || "",
+    lead: article.lead || "",
+    leadImage: article.leadImage || null,
+    leadImageAlt: article.leadImageAlt || "",
+    body: article.body || "",
+    author: article.author || null,
+    publishDate: normalizedPublishDate,
+  };
+}
+
+function hasPendingDraftChanges(draft, live) {
+  if (!draft || !live) return false;
+  const draftComparable = toComparableArticle(draft);
+  const liveComparable = toComparableArticle(live);
+  return JSON.stringify(draftComparable) !== JSON.stringify(liveComparable);
+}
+
+function toListArticle(slug, draft, live) {
+  if (live && draft) {
+    const hasPendingChanges = hasPendingDraftChanges(draft, live);
+    return {
+      ...draft,
+      id: draft.id || live.id,
+      slug,
+      published: true,
+      hasPendingChanges,
+      hasDraft: true,
+      version: "draft",
+      publishDate: live.publishDate || draft.publishDate,
+      updatedAt: hasPendingChanges
+        ? (draft.updatedAt || live.updatedAt)
+        : (live.updatedAt || draft.updatedAt),
+    };
+  }
+
+  if (live) {
+    return {
+      ...live,
+      slug,
+      published: true,
+      hasPendingChanges: false,
+      hasDraft: false,
+      version: "live",
+    };
+  }
+
+  if (draft) {
+    return {
+      ...draft,
+      slug,
+      published: false,
+      hasPendingChanges: false,
+      hasDraft: true,
+      version: "draft",
+    };
+  }
+
+  return null;
+}
+
+export function getAllArticles() {
+  if (!fs.existsSync(NEWS_VAULT)) return [];
+
+  const articles = [];
+
+  for (const slug of getArticleSlugs()) {
+    const draft = readVersion(slug, "draft");
+    const live = readVersion(slug, "live");
+    const article = toListArticle(slug, draft, live);
+    if (article) articles.push(article);
+  }
+
+  return articles.sort(
+    (a, b) =>
+      new Date(b.publishDate || b.updatedAt || b.createdAt) -
+      new Date(a.publishDate || a.updatedAt || a.createdAt),
+  );
+}
+
+export function getArticle(id) {
+  const located = locateArticleById(id);
+  if (!located) return null;
+  const { slug, draft, live } = located;
+  if (draft) {
+    const hasPendingChanges = Boolean(live) && hasPendingDraftChanges(draft, live);
+    return {
+      ...draft,
+      slug,
+      published: Boolean(live),
+      hasPendingChanges,
+      hasDraft: true,
+      version: "draft",
+    };
+  }
+
+  return {
+    ...live,
+    slug,
+    published: true,
+    hasPendingChanges: false,
+    hasDraft: false,
+    version: "live",
+  };
+}
+
+export function getArticleBySlug(slug) {
+  const draft = readVersion(slug, "draft");
+  const live = readVersion(slug, "live");
+  return toListArticle(slug, draft, live);
+}
+
+export function saveArticle(article, targetVersion = "auto") {
   let slug = article.slug;
   if (!slug) {
     const date = new Date(article.publishDate || article.createdAt);
@@ -86,98 +213,109 @@ export function saveArticle(article) {
     slug = `${dateStr}-${titleSlug}`;
   }
 
-  const status = article.published ? "published" : "drafts";
-  const articleDir = path.join(NEWS_VAULT, status, slug);
-  const mediaDir = path.join(articleDir, "media");
+  const version =
+    targetVersion === "auto"
+      ? article.published
+        ? "live"
+        : "draft"
+      : targetVersion;
 
-  if (!fs.existsSync(articleDir)) fs.mkdirSync(articleDir, { recursive: true });
-  if (!fs.existsSync(mediaDir)) fs.mkdirSync(mediaDir, { recursive: true });
+  const saved = writeVersion(slug, version, article);
 
-  article.slug = slug;
-  const md = articleToMarkdown(article);
-  fs.writeFileSync(path.join(articleDir, "newspost.md"), md);
-  return article;
+  if (version === "draft") {
+    const live = readVersion(slug, "live");
+    const draft = readVersion(slug, "draft");
+
+    if (live && draft && !hasPendingDraftChanges(draft, live)) {
+      removeDraft(slug);
+      return {
+        ...live,
+        slug,
+        published: true,
+        hasPendingChanges: false,
+        hasDraft: false,
+        version: "live",
+      };
+    }
+  }
+
+  return saved;
 }
 
 export function deleteArticle(id) {
-  const article = getArticle(id);
-  if (!article) return false;
-  const subdirs = ["published", "drafts"];
-  for (const subdir of subdirs) {
-    const articleDir = path.join(NEWS_VAULT, subdir, article.slug);
-    if (fs.existsSync(articleDir)) {
-      fs.rmSync(articleDir, { recursive: true });
-      return true;
-    }
-  }
-  return false;
+  const located = locateArticleById(id);
+  if (!located) return false;
+  const { articleDir } = getArticlePaths(located.slug);
+  if (!fs.existsSync(articleDir)) return false;
+  fs.rmSync(articleDir, { recursive: true, force: true });
+  return true;
 }
 
 export function removeDraft(slug) {
-  const draftDir = path.join(NEWS_VAULT, "drafts", slug);
-  if (fs.existsSync(draftDir)) {
-    fs.rmSync(draftDir, { recursive: true });
+  const { draftPath } = getArticlePaths(slug);
+  if (fs.existsSync(draftPath)) {
+    fs.rmSync(draftPath, { force: true });
     return true;
   }
   return false;
 }
 
 export function removePublished(slug) {
-  const publishedDir = path.join(NEWS_VAULT, "published", slug);
-  if (fs.existsSync(publishedDir)) {
-    fs.rmSync(publishedDir, { recursive: true });
+  const { livePath } = getArticlePaths(slug);
+  if (fs.existsSync(livePath)) {
+    fs.rmSync(livePath, { force: true });
     return true;
   }
   return false;
 }
 
 export function moveArticleFolder(slug, targetStatus) {
-  const validTargets = ["published", "drafts"];
-  if (!validTargets.includes(targetStatus)) return false;
-
-  const sourceStatus = targetStatus === "published" ? "drafts" : "published";
-  const sourceDir = path.join(NEWS_VAULT, sourceStatus, slug);
-  const targetDir = path.join(NEWS_VAULT, targetStatus, slug);
-
-  if (!fs.existsSync(sourceDir)) {
-    if (!fs.existsSync(targetDir)) {
-      fs.mkdirSync(path.join(targetDir, "media"), { recursive: true });
-    }
-    return false;
-  }
-
-  try {
-    if (fs.existsSync(targetDir)) {
-      fs.cpSync(sourceDir, targetDir, { recursive: true, force: true });
-      fs.rmSync(sourceDir, { recursive: true, force: true });
-      return true;
-    }
-
-    fs.renameSync(sourceDir, targetDir);
+  if (targetStatus === "published") {
+    const draft = readVersion(slug, "draft");
+    if (!draft) return false;
+    writeVersion(slug, "live", {
+      ...draft,
+      updatedAt: new Date().toISOString(),
+      publishDate: draft.publishDate || new Date().toISOString(),
+    });
+    removeDraft(slug);
     return true;
-  } catch (error) {
-    if (error?.code === "EXDEV") {
-      fs.cpSync(sourceDir, targetDir, { recursive: true, force: true });
-      fs.rmSync(sourceDir, { recursive: true, force: true });
-      return true;
-    }
-    throw error;
   }
+
+  if (targetStatus === "drafts") {
+    const live = readVersion(slug, "live");
+    if (!live) return false;
+
+    const existingDraft = readVersion(slug, "draft");
+    if (!existingDraft) {
+      writeVersion(slug, "draft", {
+        ...live,
+        published: false,
+        updatedAt: new Date().toISOString(),
+      });
+    }
+
+    removePublished(slug);
+    return true;
+  }
+
+  return false;
 }
 
 export function getArticleImagesDir(articleSlugOrId) {
-  const subdirs = ["published", "drafts"];
-  for (const subdir of subdirs) {
-    const dir = path.join(NEWS_VAULT, subdir, articleSlugOrId, "media");
-    if (fs.existsSync(dir)) return dir;
+  const directPaths = getArticlePaths(articleSlugOrId);
+  if (fs.existsSync(directPaths.articleDir)) {
+    if (!fs.existsSync(directPaths.mediaDir)) {
+      fs.mkdirSync(directPaths.mediaDir, { recursive: true });
+    }
+    return directPaths.mediaDir;
   }
 
   const article = getArticle(articleSlugOrId);
   if (article) {
-    const status = article.published ? "published" : "drafts";
-    const dir = path.join(NEWS_VAULT, status, article.slug, "media");
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    return dir;
+    const paths = getArticlePaths(article.slug);
+    if (!fs.existsSync(paths.mediaDir)) fs.mkdirSync(paths.mediaDir, { recursive: true });
+    return paths.mediaDir;
   }
   return null;
 }
