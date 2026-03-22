@@ -11,19 +11,41 @@ const isNew = computed(() => route.name === 'NewArticle');
 const articleId = computed(() => route.params.id as string);
 const saving = ref(false);
 const error = ref('');
+const lockToken = ref('');
+const lockHeartbeatHandle = ref<number | null>(null);
+const lockReady = ref(false);
+
+function getInstallationId() {
+  const key = 'eod-installation-id';
+  const existing = localStorage.getItem(key);
+  if (existing) return existing;
+  const created = crypto.randomUUID();
+  localStorage.setItem(key, created);
+  return created;
+}
+
+const installationId = getInstallationId();
 
 const articleSlug = ref('');
 const markdownInput = ref<HTMLTextAreaElement | null>(null);
 const markdownEditor = ref<EasyMDE | null>(null);
 
+function toDatetimeLocalValue(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
 const form = ref({
   title: '',
   lead: '',
   leadImage: null as string | null,
+  leadImageAlt: '',
   body: '',
   author: '',
   published: false,
-  publishDate: new Date().toISOString().slice(0, 16),
+  publishDate: toDatetimeLocalValue(new Date().toISOString()),
 });
 
 function setupMarkdownEditor() {
@@ -56,7 +78,79 @@ function setupMarkdownEditor() {
   });
 }
 
+async function releaseLock() {
+  if (isNew.value || !articleId.value || !lockToken.value) return;
+  try {
+    await api.post(`/articles/${articleId.value}/lock/release`, {
+      token: lockToken.value,
+    });
+  } catch {
+    // no-op
+  } finally {
+    lockToken.value = '';
+    lockReady.value = false;
+    if (lockHeartbeatHandle.value !== null) {
+      window.clearInterval(lockHeartbeatHandle.value);
+      lockHeartbeatHandle.value = null;
+    }
+  }
+}
+
+async function refreshLock() {
+  if (isNew.value || !articleId.value || !lockToken.value) return;
+  try {
+    await api.post(`/articles/${articleId.value}/lock/refresh`, {
+      installationId,
+      token: lockToken.value,
+    });
+  } catch (err: any) {
+    if (err.response?.status === 423) {
+      error.value = 'This article lock was taken by another editor. Please reopen the article.';
+      await releaseLock();
+    }
+  }
+}
+
+async function acquireLock() {
+  if (isNew.value || !articleId.value) {
+    lockReady.value = true;
+    return true;
+  }
+
+  lockToken.value = crypto.randomUUID();
+
+  try {
+    await api.post(`/articles/${articleId.value}/lock/acquire`, {
+      installationId,
+      token: lockToken.value,
+    });
+    lockReady.value = true;
+    lockHeartbeatHandle.value = window.setInterval(() => {
+      void refreshLock();
+    }, 5 * 60 * 1000);
+    return true;
+  } catch (err: any) {
+    lockReady.value = false;
+    lockToken.value = '';
+
+    if (err.response?.status === 423) {
+      const holder = err.response?.data?.lock?.installationId;
+      const ownerHint = holder ? ` (${String(holder).slice(0, 8)})` : '';
+      error.value = `This article is currently being edited on another device${ownerHint}.`;
+    } else if (err.response?.status === 503) {
+      error.value = 'Lock service is unavailable. Check server connection settings.';
+    } else {
+      error.value = 'Failed to acquire article lock.';
+    }
+
+    return false;
+  }
+}
+
 onMounted(async () => {
+  const lockOk = await acquireLock();
+  if (!lockOk) return;
+
   if (!isNew.value && articleId.value) {
     try {
       const { data } = await api.get(`/articles/${articleId.value}`);
@@ -64,10 +158,11 @@ onMounted(async () => {
       form.value.title = data.title;
       form.value.lead = data.lead;
       form.value.leadImage = data.leadImage;
+      form.value.leadImageAlt = data.leadImageAlt || '';
       form.value.body = data.body;
       form.value.author = data.author || '';
       form.value.published = data.published;
-      form.value.publishDate = data.publishDate?.slice(0, 16) || '';
+      form.value.publishDate = toDatetimeLocalValue(data.publishDate) || '';
       // populate textarea before EasyMDE init so CodeMirror gets the content
       if (markdownInput.value) markdownInput.value.value = data.body || '';
     } catch (err: any) {
@@ -78,6 +173,7 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
+  void releaseLock();
   markdownEditor.value?.toTextArea();
   markdownEditor.value = null;
 });
@@ -91,6 +187,12 @@ async function save() {
   saving.value = true;
   error.value = '';
 
+  if (!lockReady.value) {
+    error.value = 'Article lock is not active.';
+    saving.value = false;
+    return;
+  }
+
   try {
     form.value.body = markdownEditor.value?.value() || form.value.body;
 
@@ -98,6 +200,7 @@ async function save() {
       title: form.value.title,
       lead: form.value.lead,
       leadImage: form.value.leadImage,
+      leadImageAlt: form.value.leadImageAlt,
       body: form.value.body,
       author: form.value.author || null,
       published: form.value.published,
@@ -110,11 +213,20 @@ async function save() {
       const { data } = await api.post('/articles', payload);
       articleSlug.value = data.slug;
     } else {
-      await api.put(`/articles/${articleId.value}`, payload);
+      await api.put(`/articles/${articleId.value}`, payload, {
+        headers: {
+          'x-article-lock-token': lockToken.value,
+        },
+      });
     }
+    await releaseLock();
     router.push('/');
   } catch (err: any) {
-    error.value = err.response?.data?.error || 'Save failed';
+    if (err.response?.status === 423) {
+      error.value = 'Your lock expired or was replaced. Reopen the article to continue.';
+    } else {
+      error.value = err.response?.data?.error || 'Save failed';
+    }
   } finally {
     saving.value = false;
   }
@@ -181,6 +293,10 @@ async function uploadImage(event: Event, context: 'lead' | 'article') {
       </div>
     </div>
 
+    <div class="lock-msg" v-if="!isNew && lockReady && !error">
+      Editing lock active for this article.
+    </div>
+
     <div class="error-msg" v-if="error">{{ error }}</div>
 
     <div class="edit-form">
@@ -217,6 +333,15 @@ async function uploadImage(event: Event, context: 'lead' | 'article') {
             Remove
           </button>
         </div>
+      </div>
+
+      <div class="form-group">
+        <label>Lead Image Alt Text</label>
+        <input
+          v-model="form.leadImageAlt"
+          type="text"
+          placeholder="Short image description for accessibility"
+        />
       </div>
 
       <div class="form-group">
@@ -335,6 +460,16 @@ async function uploadImage(event: Event, context: 'lead' | 'article') {
   border-radius: var(--radius);
   font-size: 13px;
   border: 1px solid #fecaca;
+  margin-bottom: 16px;
+}
+
+.lock-msg {
+  background: #eff6ff;
+  color: #1d4ed8;
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  border: 1px solid #bfdbfe;
   margin-bottom: 16px;
 }
 </style>
