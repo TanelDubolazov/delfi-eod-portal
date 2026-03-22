@@ -2,12 +2,20 @@
 import { ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import api from '../api';
+import { useActiveServer } from '../useActiveServer';
+import { useDeploy } from '../useDeploy';
+import DeployErrorBanner from '../components/DeployErrorBanner.vue';
 
 const router = useRouter();
+const { deployError } = useActiveServer();
+const { toast, triggerDeploy } = useDeploy();
+
 const articles = ref<any[]>([]);
 const loading = ref(true);
 const alertActive = ref(false);
 const alertLoading = ref(false);
+const busyArticles = ref<Record<string, string>>({});
+
 const lockByArticleId = ref<Record<string, any>>({});
 const lockNotice = ref('');
 const editChecking = ref<Record<string, boolean>>({});
@@ -62,25 +70,20 @@ async function fetchArticleLocks(articleList: any[]) {
       }
     }),
   );
-
   lockByArticleId.value = Object.fromEntries(entries);
 }
 
 async function openEditor(article: any) {
   lockNotice.value = '';
   editChecking.value = { ...editChecking.value, [article.id]: true };
-
   try {
     const { data } = await api.get(`/articles/${article.id}/lock`);
     const lock = data.lock || null;
     lockByArticleId.value = { ...lockByArticleId.value, [article.id]: lock };
-
     if (lock && lock.installationId && lock.installationId !== installationId) {
-      const ownerHint = String(lock.installationId).slice(0, 8);
-      lockNotice.value = `This article is currently being edited on another device (${ownerHint}).`;
+      lockNotice.value = `This article is currently being edited on another device (${String(lock.installationId).slice(0, 8)}).`;
       return;
     }
-
     router.push(`/articles/${article.id}`);
   } catch {
     lockNotice.value = 'Could not verify lock state. Please try again.';
@@ -90,24 +93,9 @@ async function openEditor(article: any) {
 }
 
 function articleStatus(article: any) {
-  if (article.published && article.hasPendingChanges) {
-    return {
-      label: 'Published + Changes Pending',
-      className: 'badge-pending',
-    };
-  }
-
-  if (article.published) {
-    return {
-      label: 'Published',
-      className: 'badge-published',
-    };
-  }
-
-  return {
-    label: 'Draft',
-    className: 'badge-draft',
-  };
+  if (article.published && article.hasPendingChanges) return { label: 'Published + Changes Pending', className: 'badge-pending' };
+  if (article.published) return { label: 'Published', className: 'badge-published' };
+  return { label: 'Draft', className: 'badge-draft' };
 }
 
 function publishActionLabel(article: any) {
@@ -122,8 +110,8 @@ async function fetchArticles() {
     const { data } = await api.get('/articles');
     articles.value = data;
     await fetchArticleLocks(data);
-  } catch (err) {
-    console.error('Failed to fetch articles:', err);
+  } catch {
+    // ignore
   } finally {
     loading.value = false;
   }
@@ -133,8 +121,8 @@ async function fetchAlert() {
   try {
     const { data } = await api.get('/alert');
     alertActive.value = data.active;
-  } catch (err) {
-    console.error('Failed to fetch alert state:', err);
+  } catch {
+    // ignore
   }
 }
 
@@ -143,8 +131,14 @@ async function toggleAlert() {
   try {
     const { data } = await api.post('/alert/toggle');
     alertActive.value = data.active;
-  } catch (err) {
-    console.error('Failed to toggle alert:', err);
+    const result = await triggerDeploy();
+    if (!result.ok) {
+      const { data: reverted } = await api.post('/alert/toggle');
+      alertActive.value = reverted.active;
+      deployError.value = { action: 'toggling alert banner', code: result.code, type: result.type, reversed: true };
+    }
+  } catch {
+    // ignore
   } finally {
     alertLoading.value = false;
   }
@@ -152,18 +146,39 @@ async function toggleAlert() {
 
 async function togglePublish(article: any) {
   if (isLockedByOther(article)) return;
-  const endpoint = article.published && !article.hasPendingChanges
+  const wasPublished = article.published && !article.hasPendingChanges;
+  const endpoint = wasPublished
     ? `/articles/${article.id}/unpublish`
     : `/articles/${article.id}/publish`;
   await api.post(endpoint);
   await fetchArticles();
+  const result = await triggerDeploy();
+  if (!result.ok) {
+    await api.post(wasPublished ? `/articles/${article.id}/publish` : `/articles/${article.id}/unpublish`);
+    await fetchArticles();
+    deployError.value = {
+      action: `${wasPublished ? 'unpublishing' : 'publishing'} "${article.title}"`,
+      code: result.code,
+      type: result.type,
+      reversed: true,
+    };
+  }
 }
 
 async function deleteArticle(article: any) {
   if (isLockedByOther(article)) return;
   if (!confirm(`Delete "${article.title}"?`)) return;
-  await api.delete(`/articles/${article.id}`);
-  await fetchArticles();
+  busyArticles.value[article.id] = 'Deleting...';
+  try {
+    await api.delete(`/articles/${article.id}`);
+    await fetchArticles();
+    const result = await triggerDeploy();
+    if (!result.ok) {
+      deployError.value = { action: `deleting "${article.title}"`, code: result.code, type: result.type, reversed: false };
+    }
+  } finally {
+    delete busyArticles.value[article.id];
+  }
 }
 
 function formatDate(dateStr: string) {
@@ -184,21 +199,23 @@ onMounted(async () => {
 
 <template>
   <div class="dashboard">
+    <Transition name="toast">
+      <div v-if="toast.visible" :class="['deploy-toast', `deploy-toast--${toast.status}`]">
+        <span v-if="toast.status === 'deploying'" class="deploy-spinner" />
+        {{ toast.message }}
+      </div>
+    </Transition>
     <div class="dashboard-header">
       <h1>Articles</h1>
       <div style="display:flex; gap: 8px; align-items: center;">
-        <button
-          class="btn-primary"
-          @click="toggleAlert"
-          :disabled="alertLoading"
-        >
+        <button class="btn-primary" @click="toggleAlert" :disabled="alertLoading">
           {{ alertLoading ? 'Updating...' : (alertActive ? 'Deactivate Critical Alert' : 'Activate Critical Alert') }}
         </button>
-        <button class="btn-primary" @click="router.push('/articles/new')">
-          + New Article
-        </button>
+        <button class="btn-primary" @click="router.push('/articles/new')">+ New Article</button>
       </div>
     </div>
+
+    <DeployErrorBanner />
 
     <div v-if="loading" class="loading">Loading articles...</div>
 
@@ -260,10 +277,10 @@ onMounted(async () => {
           <button
             class="btn-danger btn-sm"
             @click="deleteArticle(article)"
-            :disabled="isLockedByOther(article)"
+            :disabled="isLockedByOther(article) || !!busyArticles[article.id]"
             :title="isLockedByOther(article) ? 'Locked by another device' : ''"
           >
-            Delete
+            {{ busyArticles[article.id] === 'Deleting...' ? 'Deleting...' : 'Delete' }}
           </button>
         </div>
       </div>
@@ -409,6 +426,40 @@ onMounted(async () => {
   border: 1px dashed var(--border);
   border-radius: var(--radius);
 }
+
+.deploy-toast {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 20px;
+  border-radius: var(--radius);
+  font-size: 14px;
+  font-weight: 500;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+  color: #fff;
+}
+
+.deploy-toast--deploying { background: #2563eb; }
+.deploy-toast--success   { background: #16a34a; }
+
+.deploy-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255,255,255,0.4);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.toast-enter-active, .toast-leave-active { transition: opacity 0.3s, transform 0.3s; }
+.toast-enter-from, .toast-leave-to { opacity: 0; transform: translateY(12px); }
 
 .loading {
   text-align: center;

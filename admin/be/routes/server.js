@@ -1,6 +1,9 @@
 import { Router } from "express";
+import { execSync } from "child_process";
+import fs from "fs";
+import path from "path";
 import SftpClient from "ssh2-sftp-client";
-import { S3Client, ListBucketsCommand } from "@aws-sdk/client-s3";
+import { S3Client, HeadBucketCommand, PutObjectCommand } from "@aws-sdk/client-s3";
 import { updateCredentials } from "../auth/crypto.js";
 
 export const serverRouter = Router();
@@ -48,8 +51,8 @@ serverRouter.put("/", (req, res) => {
   }
 
   if (type === "s3") {
-    if (!fields.s3Endpoint || !fields.s3Bucket || !fields.s3AccessKey) {
-      return res.status(400).json({ error: "Endpoint, bucket and access key required" });
+    if (!fields.s3Bucket || !fields.s3AccessKey) {
+      return res.status(400).json({ error: "Bucket and access key required" });
     }
   } else if (!fields.sftpHost || !fields.sftpUsername) {
     return res.status(400).json({ error: "Host and username required" });
@@ -131,17 +134,125 @@ serverRouter.post("/:id/test", async (req, res) => {
       res.json({ success: true, ms: Date.now() - start, details: `${list.length} items in ${server.sftpPath || "/"}` });
 
     } else if (server.type === "s3") {
-      const s3 = new S3Client({
-        endpoint: server.s3Endpoint,
+      const clientConfig = {
         region: server.s3Region || "us-east-1",
         credentials: {
           accessKeyId: server.s3AccessKey,
           secretAccessKey: server.s3SecretKey,
         },
-      });
-      await s3.send(new ListBucketsCommand({}));
-      res.json({ success: true, ms: Date.now() - start, details: `Connected to ${server.s3Endpoint}` });
+      };
+      if (server.s3Endpoint) {
+        clientConfig.endpoint = server.s3Endpoint;
+        clientConfig.forcePathStyle = true;
+      }
+      const s3 = new S3Client(clientConfig);
+      await s3.send(new HeadBucketCommand({ Bucket: server.s3Bucket }));
+      res.json({ success: true, ms: Date.now() - start, details: `Bucket '${server.s3Bucket}' is accessible` });
     }
+  } catch (err) {
+    const detail = err.code ? `[${err.code}] ${err.message}` : err.message;
+    res.json({ success: false, ms: Date.now() - start, details: detail });
+  }
+});
+
+serverRouter.post("/:id/deploy", async (req, res) => {
+  const servers = getServers(req.session);
+  const server = servers.find(s => s.id === req.params.id);
+  if (!server) return res.status(404).json({ error: "Server not found" });
+
+  const baseDir = req.app.get("BASE_DIR");
+  const webDir = path.join(baseDir, "web");
+  const distDir = path.join(webDir, "dist");
+
+  const start = Date.now();
+
+  try {
+    // install deps if needed, then build
+    execSync("npm install", { cwd: webDir, stdio: "pipe", shell: true });
+    execSync("npm run build", { cwd: webDir, stdio: "pipe", shell: true });
+
+    // collect all files in dist/ recursively
+    function collectFiles(dir, base = dir) {
+      const entries = fs.readdirSync(dir, { withFileTypes: true });
+      const files = [];
+      for (const entry of entries) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          files.push(...collectFiles(full, base));
+        } else {
+          files.push({ full, relative: path.relative(base, full) });
+        }
+      }
+      return files;
+    }
+
+    const files = collectFiles(distDir);
+
+    if (server.type === "sftp") {
+      const sftp = new SftpClient();
+      await sftp.connect({
+        host: server.sftpHost,
+        port: server.sftpPort || 22,
+        username: server.sftpUsername,
+        password: server.sftpPassword,
+        tryKeyboard: true,
+        authHandler: ["password", "keyboard-interactive"],
+        readyTimeout: 10000,
+      });
+
+      const remotePath = server.sftpPath || "/";
+      for (const { full, relative } of files) {
+        const dest = remotePath.replace(/\/$/, "") + "/" + relative.replace(/\\/g, "/");
+        const destDir = dest.substring(0, dest.lastIndexOf("/"));
+        await sftp.mkdir(destDir, true);
+        await sftp.put(full, dest);
+      }
+
+      await sftp.end();
+
+    } else if (server.type === "s3") {
+      const s3Config = {
+        region: server.s3Region || "us-east-1",
+        credentials: {
+          accessKeyId: server.s3AccessKey,
+          secretAccessKey: server.s3SecretKey,
+        },
+      };
+      if (server.s3Endpoint) {
+        s3Config.endpoint = server.s3Endpoint;
+        s3Config.forcePathStyle = true;
+      }
+      const s3 = new S3Client(s3Config);
+
+      for (const { full, relative } of files) {
+        const key = relative.replace(/\\/g, "/");
+        const body = fs.readFileSync(full);
+        const ext = path.extname(full).toLowerCase();
+        const contentTypes = {
+          ".html": "text/html",
+          ".css": "text/css",
+          ".js": "application/javascript",
+          ".json": "application/json",
+          ".xml": "application/xml",
+          ".svg": "image/svg+xml",
+          ".png": "image/png",
+          ".jpg": "image/jpeg",
+          ".jpeg": "image/jpeg",
+          ".webp": "image/webp",
+          ".woff": "font/woff",
+          ".woff2": "font/woff2",
+          ".ico": "image/x-icon",
+        };
+        await s3.send(new PutObjectCommand({
+          Bucket: server.s3Bucket,
+          Key: key,
+          Body: body,
+          ContentType: contentTypes[ext] || "application/octet-stream",
+        }));
+      }
+    }
+
+    res.json({ success: true, ms: Date.now() - start, details: `${files.length} files deployed to ${server.name}` });
   } catch (err) {
     const detail = err.code ? `[${err.code}] ${err.message}` : err.message;
     res.json({ success: false, ms: Date.now() - start, details: detail });
