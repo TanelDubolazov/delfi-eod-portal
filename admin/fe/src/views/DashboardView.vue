@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, onUnmounted } from 'vue';
 import { useRouter } from 'vue-router';
 import api from '../api';
 import { useActiveServer } from '../useActiveServer';
@@ -19,6 +19,7 @@ const busyArticles = ref<Record<string, string>>({});
 const lockByArticleId = ref<Record<string, any>>({});
 const lockNotice = ref('');
 const editChecking = ref<Record<string, boolean>>({});
+let lockRefreshHandle: number | null = null;
 
 function getInstallationId() {
   const key = 'eod-installation-id';
@@ -194,6 +195,16 @@ function formatDate(dateStr: string) {
 
 onMounted(async () => {
   await Promise.all([fetchArticles(), fetchAlert()]);
+  lockRefreshHandle = window.setInterval(() => {
+    void fetchArticleLocks(articles.value);
+  }, 15000);
+});
+
+onUnmounted(() => {
+  if (lockRefreshHandle !== null) {
+    window.clearInterval(lockRefreshHandle);
+    lockRefreshHandle = null;
+  }
 });
 </script>
 
