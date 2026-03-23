@@ -24,8 +24,8 @@ start "EOD Admin Backend" cmd /c ""%NODE_EXE%" "%ROOT_DIR%\admin\be\index.js""
 start "EOD Site" cmd /c ""%NODE_EXE%" "%ROOT_DIR%\scripts\runtime\site-server.mjs""
 
 echo.
-echo Admin portal: http://localhost:3001
-echo Public site:  http://localhost:4321
+echo Admin portal: http://127.0.0.1:3001
+echo Public site:  http://127.0.0.1:4321
 echo.
 echo Keep both opened terminal windows running.
 

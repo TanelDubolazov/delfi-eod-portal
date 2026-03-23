@@ -8,7 +8,7 @@ import { fileURLToPath } from 'url';
 import { initStore } from './data/store.js';
 import { initAuth } from './auth/crypto.js';
 import { authRouter } from './auth/routes.js';
-import { requireAuth } from './auth/middleware.js';
+import { requireAuth, requireStateChangingRequestHeader } from './auth/middleware.js';
 import { articlesRouter } from './routes/articles.js';
 import { imagesRouter } from './routes/images.js';
 import { alertRouter } from './routes/alert.js';
@@ -27,13 +27,29 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 app.set('BASE_DIR', BASE_DIR);
 
+const ALLOWED_ORIGINS = new Set([
+  'http://127.0.0.1:3001',
+  'http://127.0.0.1:5173',
+]);
+
 const ADMIN_FE_DIST = process.env.ADMIN_FE_DIST
   ? path.resolve(process.env.ADMIN_FE_DIST)
   : path.join(BASE_DIR, 'admin', 'fe', 'dist');
 const HAS_ADMIN_FE_DIST = fs.existsSync(path.join(ADMIN_FE_DIST, 'index.html'));
 
-app.use(cors({ origin: true, credentials: true }));
+app.use(cors({
+  origin(origin, callback) {
+    if (!origin || ALLOWED_ORIGINS.has(origin)) {
+      callback(null, true);
+      return;
+    }
+    callback(null, false);
+  },
+  credentials: true,
+}));
 app.use(express.json({ limit: '50mb' }));
+
+app.use(requireStateChangingRequestHeader);
 
 app.use(session({
   name: 'eod.sid',
@@ -73,6 +89,6 @@ if (HAS_ADMIN_FE_DIST) {
   });
 }
 
-app.listen(PORT, 'localhost', () => {
-  console.log(`EOD Admin running on http://localhost:${PORT}`);
+app.listen(PORT, '127.0.0.1', () => {
+  console.log(`EOD Admin running on http://127.0.0.1:${PORT}`);
 });

@@ -33,8 +33,8 @@ cleanup() {
 trap cleanup INT TERM EXIT
 
 echo
-echo "Admin portal: http://localhost:3001"
-echo "Public site:  http://localhost:4321"
+echo "Admin portal: http://127.0.0.1:3001"
+echo "Public site:  http://127.0.0.1:4321"
 echo
 echo "Press Ctrl+C to stop"
 

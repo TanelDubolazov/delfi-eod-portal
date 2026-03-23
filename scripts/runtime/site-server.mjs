@@ -72,6 +72,6 @@ const server = http.createServer((req, res) => {
   }
 });
 
-server.listen(port, 'localhost', () => {
-  console.log(`Static site running at http://localhost:${port}`);
+server.listen(port, '127.0.0.1', () => {
+  console.log(`Static site running at http://127.0.0.1:${port}`);
 });

@@ -38,5 +38,5 @@ Notes:
 
 In Server Connection view:
 
-- `Build Preview` rebuilds local `web/dist` only (no upload) so editors can verify changes at `http://localhost:4321`.
+- `Build Preview` rebuilds local `web/dist` only (no upload) so editors can verify changes at `http://127.0.0.1:4321`.
 - `Deploy` rebuilds and uploads to the selected server target.
