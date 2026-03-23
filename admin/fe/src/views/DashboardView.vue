@@ -1,29 +1,31 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue';
-import { useRouter } from 'vue-router';
-import api from '../api';
-import { useActiveServer } from '../useActiveServer';
-import { useDeploy } from '../useDeploy';
-import DeployErrorBanner from '../components/DeployErrorBanner.vue';
+import { ref, onMounted, onUnmounted } from "vue";
+import { useRouter } from "vue-router";
+import api from "../api";
+import { useActiveServer } from "../useActiveServer";
+import { useDeploy } from "../useDeploy";
+import DeployErrorBanner from "../components/DeployErrorBanner.vue";
 
 const router = useRouter();
-const { deployError, activeServerId, workOffline } = useActiveServer();
+const { deployError, activeServerId } = useActiveServer();
 const { toast, triggerDeploy } = useDeploy();
 
 const articles = ref<any[]>([]);
 const loading = ref(true);
-const alertMessage = ref('');
+const alertMessage = ref("");
+const alertActive = ref(false);
 const alertSaving = ref(false);
+const alertToggling = ref(false);
 const alertDeploying = ref(false);
 const busyArticles = ref<Record<string, string>>({});
 
 const lockByArticleId = ref<Record<string, any>>({});
-const lockNotice = ref('');
+const lockNotice = ref("");
 const editChecking = ref<Record<string, boolean>>({});
 let lockRefreshHandle: number | null = null;
 
 function getInstallationId() {
-  const key = 'eod-installation-id';
+  const key = "eod-installation-id";
   const existing = localStorage.getItem(key);
   if (existing) return existing;
   const created = crypto.randomUUID();
@@ -39,26 +41,30 @@ function lockFor(article: any) {
 
 function isLockedByOther(article: any) {
   const lock = lockFor(article);
-  return Boolean(lock && lock.installationId && lock.installationId !== installationId);
+  return Boolean(
+    lock && lock.installationId && lock.installationId !== installationId,
+  );
 }
 
 function lockBadgeLabel(article: any) {
   const lock = lockFor(article);
-  if (!lock) return '';
-  if (lock.installationId === installationId) return 'Locked (this device)';
-  return 'Locked (other device)';
+  if (!lock) return "";
+  if (lock.installationId === installationId) return "Locked (this device)";
+  return "Locked (other device)";
 }
 
 function lockOwnerHint(article: any) {
   const lock = lockFor(article);
-  if (!lock || !lock.installationId) return '';
+  if (!lock || !lock.installationId) return "";
   return String(lock.installationId).slice(0, 8);
 }
 
 function lockBadgeClass(article: any) {
   const lock = lockFor(article);
-  if (!lock) return '';
-  return lock.installationId === installationId ? 'badge-locked-self' : 'badge-locked-other';
+  if (!lock) return "";
+  return lock.installationId === installationId
+    ? "badge-locked-self"
+    : "badge-locked-other";
 }
 
 async function fetchArticleLocks(articleList: any[]) {
@@ -76,7 +82,7 @@ async function fetchArticleLocks(articleList: any[]) {
 }
 
 async function openEditor(article: any) {
-  lockNotice.value = '';
+  lockNotice.value = "";
   editChecking.value = { ...editChecking.value, [article.id]: true };
   try {
     const { data } = await api.get(`/articles/${article.id}/lock`);
@@ -88,28 +94,30 @@ async function openEditor(article: any) {
     }
     router.push(`/articles/${article.id}`);
   } catch {
-    lockNotice.value = 'Could not verify lock state. Please try again.';
+    lockNotice.value = "Could not verify lock state. Please try again.";
   } finally {
     editChecking.value = { ...editChecking.value, [article.id]: false };
   }
 }
 
 function articleStatus(article: any) {
-  if (article.published && article.hasPendingChanges) return { label: 'Published + Changes Pending', className: 'badge-pending' };
-  if (article.published) return { label: 'Published', className: 'badge-published' };
-  return { label: 'Draft', className: 'badge-draft' };
+  if (article.published && article.hasPendingChanges)
+    return { label: "Published + Changes Pending", className: "badge-pending" };
+  if (article.published)
+    return { label: "Published", className: "badge-published" };
+  return { label: "Draft", className: "badge-draft" };
 }
 
 function publishActionLabel(article: any) {
-  if (article.published && article.hasPendingChanges) return 'Publish update';
-  if (article.published) return 'Unpublish';
-  return 'Publish';
+  if (article.published && article.hasPendingChanges) return "Publish update";
+  if (article.published) return "Unpublish";
+  return "Publish";
 }
 
 async function fetchArticles() {
   loading.value = true;
   try {
-    const { data } = await api.get('/articles');
+    const { data } = await api.get("/articles");
     articles.value = data;
     await fetchArticleLocks(data);
   } catch {
@@ -121,8 +129,9 @@ async function fetchArticles() {
 
 async function fetchAlert() {
   try {
-    const { data } = await api.get('/alert');
-    alertMessage.value = data.message || '';
+    const { data } = await api.get("/alert");
+    alertActive.value = Boolean(data.active);
+    alertMessage.value = data.message || "";
   } catch {
     // ignore
   }
@@ -134,7 +143,8 @@ async function saveAlertMessage() {
 
   alertSaving.value = true;
   try {
-    const { data } = await api.put('/alert', { message });
+    const { data } = await api.put("/alert", { message });
+    alertActive.value = Boolean(data.active);
     alertMessage.value = data.message;
   } catch {
     // ignore
@@ -145,12 +155,21 @@ async function saveAlertMessage() {
 
 async function deployAlertUpdate() {
   if (alertDeploying.value || alertSaving.value) return;
+  if (!activeServerId.value) {
+    deployError.value = {
+      action: "deploying critical alert update",
+      code: "No active server selected. Add or choose a server in Server settings.",
+      type: "build",
+      reversed: false,
+    };
+    return;
+  }
   alertDeploying.value = true;
   try {
     const result = await triggerDeploy();
     if (!result.ok) {
       deployError.value = {
-        action: 'deploying critical alert update',
+        action: "deploying critical alert update",
         code: result.code,
         type: result.type,
         reversed: false,
@@ -158,6 +177,19 @@ async function deployAlertUpdate() {
     }
   } finally {
     alertDeploying.value = false;
+  }
+}
+
+async function toggleAlertActive() {
+  if (alertToggling.value || alertSaving.value) return;
+  alertToggling.value = true;
+  try {
+    const { data } = await api.post("/alert/toggle");
+    alertActive.value = Boolean(data.active);
+  } catch {
+    // ignore
+  } finally {
+    alertToggling.value = false;
   }
 }
 
@@ -171,10 +203,14 @@ async function togglePublish(article: any) {
   await fetchArticles();
   const result = await triggerDeploy();
   if (!result.ok) {
-    await api.post(wasPublished ? `/articles/${article.id}/publish` : `/articles/${article.id}/unpublish`);
+    await api.post(
+      wasPublished
+        ? `/articles/${article.id}/publish`
+        : `/articles/${article.id}/unpublish`,
+    );
     await fetchArticles();
     deployError.value = {
-      action: `${wasPublished ? 'unpublishing' : 'publishing'} "${article.title}"`,
+      action: `${wasPublished ? "unpublishing" : "publishing"} "${article.title}"`,
       code: result.code,
       type: result.type,
       reversed: true,
@@ -185,13 +221,18 @@ async function togglePublish(article: any) {
 async function deleteArticle(article: any) {
   if (isLockedByOther(article)) return;
   if (!confirm(`Delete "${article.title}"?`)) return;
-  busyArticles.value[article.id] = 'Deleting...';
+  busyArticles.value[article.id] = "Deleting...";
   try {
     await api.delete(`/articles/${article.id}`);
     await fetchArticles();
     const result = await triggerDeploy();
     if (!result.ok) {
-      deployError.value = { action: `deleting "${article.title}"`, code: result.code, type: result.type, reversed: false };
+      deployError.value = {
+        action: `deleting "${article.title}"`,
+        code: result.code,
+        type: result.type,
+        reversed: false,
+      };
     }
   } finally {
     delete busyArticles.value[article.id];
@@ -199,13 +240,13 @@ async function deleteArticle(article: any) {
 }
 
 function formatDate(dateStr: string) {
-  if (!dateStr) return '—';
-  return new Date(dateStr).toLocaleDateString('et-EE', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
+  if (!dateStr) return "—";
+  return new Date(dateStr).toLocaleDateString("et-EE", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
   });
 }
 
@@ -227,15 +268,20 @@ onUnmounted(() => {
 <template>
   <div class="dashboard">
     <Transition name="toast">
-      <div v-if="toast.visible" :class="['deploy-toast', `deploy-toast--${toast.status}`]">
+      <div
+        v-if="toast.visible"
+        :class="['deploy-toast', `deploy-toast--${toast.status}`]"
+      >
         <span v-if="toast.status === 'deploying'" class="deploy-spinner" />
         {{ toast.message }}
       </div>
     </Transition>
     <div class="dashboard-header">
       <h1>Articles</h1>
-      <div style="display:flex; gap: 8px; align-items: center;">
-        <button class="btn-primary" @click="router.push('/articles/new')">+ New Article</button>
+      <div style="display: flex; gap: 8px; align-items: center">
+        <button class="btn-primary" @click="router.push('/articles/new')">
+          + New Article
+        </button>
       </div>
     </div>
 
@@ -248,16 +294,31 @@ onUnmounted(() => {
           type="text"
           placeholder="Critical alert message shown on homepage"
         />
-        <button class="btn-primary" @click="saveAlertMessage" :disabled="alertSaving || !alertMessage.trim()">
-          {{ alertSaving ? 'Saving...' : 'Save Alert Text' }}
+        <button
+          class="btn-primary"
+          @click="saveAlertMessage"
+          :disabled="alertSaving || !alertMessage.trim()"
+        >
+          {{ alertSaving ? "Saving..." : "Save Alert Text" }}
+        </button>
+        <button
+          class="critical-alert-toggle"
+          :class="{ 'critical-alert-toggle--active': alertActive }"
+          @click="toggleAlertActive"
+          :disabled="alertToggling || alertSaving"
+        >
+          {{
+            alertToggling
+              ? "Updating..."
+              : `Critical Alert: ${alertActive ? "ON" : "OFF"}`
+          }}
         </button>
         <button
           class="btn-secondary"
           @click="deployAlertUpdate"
-          :disabled="alertDeploying || alertSaving || (!activeServerId && !workOffline)"
-          :title="(!activeServerId && !workOffline) ? 'Select an active server first' : ''"
+          :disabled="alertDeploying || alertSaving"
         >
-          {{ alertDeploying ? 'Deploying...' : 'Deploy Critical Alert Update' }}
+          {{ alertDeploying ? "Deploying..." : "Deploy Critical Alert Update" }}
         </button>
       </div>
     </div>
@@ -273,24 +334,27 @@ onUnmounted(() => {
     </div>
 
     <div v-if="!loading && articles.length > 0" class="articles-list">
-      <div
-        v-for="article in articles"
-        :key="article.id"
-        class="article-card"
-      >
+      <div v-for="article in articles" :key="article.id" class="article-card">
         <div class="article-info">
           <div class="article-meta">
             <span class="badge" :class="articleStatus(article).className">
               {{ articleStatus(article).label }}
             </span>
-            <span v-if="lockFor(article)" class="badge" :class="lockBadgeClass(article)">
+            <span
+              v-if="lockFor(article)"
+              class="badge"
+              :class="lockBadgeClass(article)"
+            >
               {{ lockBadgeLabel(article) }}
             </span>
             <div class="article-dates">
               <span v-if="article.published" class="article-date">
                 Published: {{ formatDate(article.publishDate) }}
               </span>
-              <span v-if="article.published && article.hasPendingChanges" class="article-date">
+              <span
+                v-if="article.published && article.hasPendingChanges"
+                class="article-date"
+              >
                 Draft saved: {{ formatDate(article.updatedAt) }}
               </span>
               <span v-if="!article.published" class="article-date">
@@ -301,7 +365,9 @@ onUnmounted(() => {
           <h3 class="article-title">{{ article.title }}</h3>
           <p class="article-lead" v-if="article.lead">{{ article.lead }}</p>
           <p v-if="isLockedByOther(article)" class="article-lock-note">
-            This article is currently being edited on another device ({{ lockOwnerHint(article) }}).
+            This article is currently being edited on another device ({{
+              lockOwnerHint(article)
+            }}).
           </p>
         </div>
         <div class="article-actions">
@@ -311,7 +377,7 @@ onUnmounted(() => {
             :disabled="isLockedByOther(article)"
             :title="isLockedByOther(article) ? 'Locked by another device' : ''"
           >
-            {{ editChecking[article.id] ? 'Checking...' : 'Edit' }}
+            {{ editChecking[article.id] ? "Checking..." : "Edit" }}
           </button>
           <button
             class="btn-secondary btn-sm"
@@ -327,7 +393,11 @@ onUnmounted(() => {
             :disabled="isLockedByOther(article) || !!busyArticles[article.id]"
             :title="isLockedByOther(article) ? 'Locked by another device' : ''"
           >
-            {{ busyArticles[article.id] === 'Deleting...' ? 'Deleting...' : 'Delete' }}
+            {{
+              busyArticles[article.id] === "Deleting..."
+                ? "Deleting..."
+                : "Delete"
+            }}
           </button>
         </div>
       </div>
@@ -371,6 +441,27 @@ onUnmounted(() => {
 
 .alert-settings-row input {
   flex: 1;
+}
+
+.critical-alert-toggle {
+  border: none;
+  color: var(--surface);
+  font-size: 13px;
+  padding: 6px 14px;
+  background: #4b5563;
+  border-radius: var(--radius);
+}
+
+.critical-alert-toggle:hover {
+  background: #374151;
+}
+
+.critical-alert-toggle--active {
+  background: #b42318;
+}
+
+.critical-alert-toggle--active:hover {
+  background: #912018;
 }
 
 .articles-list {
@@ -512,27 +603,44 @@ onUnmounted(() => {
   border-radius: var(--radius);
   font-size: 14px;
   font-weight: 500;
-  box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
   color: #fff;
 }
 
-.deploy-toast--deploying { background: #2563eb; }
-.deploy-toast--success   { background: #16a34a; }
+.deploy-toast--deploying {
+  background: #2563eb;
+}
+.deploy-toast--success {
+  background: #16a34a;
+}
 
 .deploy-spinner {
   width: 14px;
   height: 14px;
-  border: 2px solid rgba(255,255,255,0.4);
+  border: 2px solid rgba(255, 255, 255, 0.4);
   border-top-color: #fff;
   border-radius: 50%;
   animation: spin 0.7s linear infinite;
   flex-shrink: 0;
 }
 
-@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
 
-.toast-enter-active, .toast-leave-active { transition: opacity 0.3s, transform 0.3s; }
-.toast-enter-from, .toast-leave-to { opacity: 0; transform: translateY(12px); }
+.toast-enter-active,
+.toast-leave-active {
+  transition:
+    opacity 0.3s,
+    transform 0.3s;
+}
+.toast-enter-from,
+.toast-leave-to {
+  opacity: 0;
+  transform: translateY(12px);
+}
 
 .loading {
   text-align: center;

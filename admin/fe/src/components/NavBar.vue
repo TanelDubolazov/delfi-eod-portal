@@ -1,50 +1,46 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import api from '../api';
-import { useDeploy } from '../useDeploy';
 import { useActiveServer } from '../useActiveServer';
 
 const router = useRouter();
 const route = useRoute();
-const alertActive = ref(false);
-const alertToggling = ref(false);
-const { triggerDeploy } = useDeploy();
-const { deployError, activeServerId, workOffline } = useActiveServer();
+const previewBuilding = ref(false);
+const { deployError } = useActiveServer();
 
-async function fetchAlert() {
+async function buildPreview() {
+  if (previewBuilding.value) return;
+  const previewWindow = window.open('', '_blank');
+  previewBuilding.value = true;
   try {
-    const { data } = await api.get('/alert');
-    alertActive.value = Boolean(data.active);
-  } catch {
-    // ignore
-  }
-}
-
-async function toggleAlert() {
-  if (alertToggling.value) return;
-  alertToggling.value = true;
-  try {
-    const previous = alertActive.value;
-    const { data } = await api.post('/alert/toggle');
-    alertActive.value = Boolean(data.active);
-
-    const result = await triggerDeploy();
-    if (!result.ok) {
-      const { data: reverted } = await api.post('/alert/toggle');
-      alertActive.value = Boolean(reverted.active);
+    const { data } = await api.post('/server/build-preview');
+    if (data.success) {
+      if (previewWindow) {
+        previewWindow.location.href = 'http://localhost:4321';
+        previewWindow.focus();
+      } else {
+        window.open('http://localhost:4321', '_blank');
+      }
+    } else {
+      if (previewWindow) previewWindow.close();
       deployError.value = {
-        action: 'toggling critical alert',
-        code: result.code,
-        type: result.type,
-        reversed: true,
+        action: 'building preview',
+        code: data.details || 'Build failed',
+        type: 'build',
+        reversed: false,
       };
-      if (alertActive.value !== previous) alertActive.value = previous;
     }
-  } catch {
-    // ignore
+  } catch (err: any) {
+    if (previewWindow) previewWindow.close();
+    deployError.value = {
+      action: 'building preview',
+      code: err.response?.data?.error || err.message || 'Build failed',
+      type: 'build',
+      reversed: false,
+    };
   } finally {
-    alertToggling.value = false;
+    previewBuilding.value = false;
   }
 }
 
@@ -61,12 +57,10 @@ function toggleServer() {
   if (route.path === '/server') router.back();
   else router.push('/server');
 }
-
-onMounted(fetchAlert);
 </script>
 
 <template>
-  <nav class="navbar" v-if="route.name !== 'Login'">
+  <nav class="navbar" v-if="route.name && route.name !== 'Login'">
     <div class="navbar-inner">
       <router-link to="/" class="navbar-brand">
         <img src="/delfi.png" alt="Delfi" class="brand-logo" />
@@ -74,13 +68,11 @@ onMounted(fetchAlert);
       </router-link>
       <div class="navbar-actions">
         <button
-          class="critical-alert-toggle"
-          :class="{ 'critical-alert-toggle--active': alertActive }"
-          @click="toggleAlert"
-          :disabled="alertToggling || (!activeServerId && !workOffline)"
-          :title="(!activeServerId && !workOffline) ? 'Select an active server first' : ''"
+          class="preview-btn"
+          @click="buildPreview"
+          :disabled="previewBuilding"
         >
-          {{ alertToggling ? 'Updating + Deploying...' : `Critical Alert: ${alertActive ? 'ON' : 'OFF'}` }}
+          {{ previewBuilding ? 'Building Preview...' : 'Build Preview' }}
         </button>
         <button class="nav-link server-link" @click="toggleServer">⚙ Server</button>
         <button class="btn-secondary btn-sm" @click="logout">Log Out</button>
@@ -154,7 +146,7 @@ onMounted(fetchAlert);
   color: var(--surface);
 }
 
-.critical-alert-toggle {
+.preview-btn {
   border: none;
   color: var(--surface);
   font-size: 13px;
@@ -163,16 +155,12 @@ onMounted(fetchAlert);
   border-radius: var(--radius);
 }
 
-.critical-alert-toggle:hover {
+.preview-btn:hover {
   background: #374151;
 }
 
-.critical-alert-toggle--active {
-  background: #b42318;
-}
-
-.critical-alert-toggle--active:hover {
-  background: #912018;
+.preview-btn:disabled {
+  opacity: 0.6;
 }
 
 .user-name {

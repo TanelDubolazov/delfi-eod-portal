@@ -9,6 +9,38 @@ import { updateCredentials } from "../auth/crypto.js";
 
 export const serverRouter = Router();
 
+function resolveAstroCliPath(webDir) {
+  const candidates = [
+    path.join(webDir, "node_modules", "astro", "astro.js"),
+    path.join(webDir, "node_modules", "astro", "dist", "cli", "index.js"),
+  ];
+  return candidates.find(candidate => fs.existsSync(candidate)) || null;
+}
+
+function runAstroBuild(webDir) {
+  const astroCli = resolveAstroCliPath(webDir);
+  if (!astroCli) {
+    throw new Error("Missing Astro CLI in runtime web/node_modules. Rebuild runtime package.");
+  }
+
+  const command = `\"${process.execPath}\" \"${astroCli}\" build`;
+  const env = { ...process.env, NODE_ENV: "production" };
+
+  execSync(command, { cwd: webDir, stdio: "pipe", shell: true, env });
+}
+
+function ensureWebBuildInputs(webDir) {
+  const webPackagePath = path.join(webDir, "package.json");
+  const webNodeModulesPath = path.join(webDir, "node_modules");
+
+  if (!fs.existsSync(webPackagePath)) {
+    throw new Error(`Missing web/package.json in runtime at ${webPackagePath}`);
+  }
+  if (!fs.existsSync(webNodeModulesPath)) {
+    throw new Error("Missing web/node_modules in runtime. Rebuild runtime package.");
+  }
+}
+
 let idSeq = 1;
 function genId() {
   return Date.now().toString(36) + (idSeq++).toString(36);
@@ -207,9 +239,8 @@ serverRouter.post("/:id/deploy", async (req, res) => {
   const start = Date.now();
 
   try {
-    // install deps if needed, then build
-    execSync("npm install", { cwd: webDir, stdio: "pipe", shell: true });
-    execSync("npm run build", { cwd: webDir, stdio: "pipe", shell: true });
+    ensureWebBuildInputs(webDir);
+    runAstroBuild(webDir);
 
     // collect all files in dist/ recursively
     function collectFiles(dir, base = dir) {
@@ -244,6 +275,40 @@ serverRouter.post("/:id/deploy", async (req, res) => {
     }
 
     res.json({ success: true, ms: Date.now() - start, details: `${files.length} files deployed to ${server.name}` });
+  } catch (err) {
+    const detail = err.code ? `[${err.code}] ${err.message}` : err.message;
+    res.json({ success: false, ms: Date.now() - start, details: detail });
+  }
+});
+
+serverRouter.post("/:id/build", async (req, res) => {
+  const servers = getServers(req.session);
+  const server = servers.find(s => s.id === req.params.id);
+  if (!server) return res.status(404).json({ error: "Server not found" });
+
+  const baseDir = req.app.get("BASE_DIR");
+  const webDir = path.join(baseDir, "web");
+  const start = Date.now();
+
+  try {
+    ensureWebBuildInputs(webDir);
+    runAstroBuild(webDir);
+    res.json({ success: true, ms: Date.now() - start, details: "Preview build complete" });
+  } catch (err) {
+    const detail = err.code ? `[${err.code}] ${err.message}` : err.message;
+    res.json({ success: false, ms: Date.now() - start, details: detail });
+  }
+});
+
+serverRouter.post("/build-preview", async (req, res) => {
+  const baseDir = req.app.get("BASE_DIR");
+  const webDir = path.join(baseDir, "web");
+  const start = Date.now();
+
+  try {
+    ensureWebBuildInputs(webDir);
+    runAstroBuild(webDir);
+    res.json({ success: true, ms: Date.now() - start, details: "Preview build complete" });
   } catch (err) {
     const detail = err.code ? `[${err.code}] ${err.message}` : err.message;
     res.json({ success: false, ms: Date.now() - start, details: detail });
