@@ -16,5 +16,8 @@ export default defineConfig({
         allow: [path.resolve("."), path.resolve("../news-vault")],
       },
     },
+    build: {
+      emptyOutDir: true,
+    },
   },
 });
