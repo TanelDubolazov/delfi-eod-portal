@@ -1,9 +1,52 @@
 <script setup lang="ts">
+import { ref, onMounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import api from '../api';
+import { useDeploy } from '../useDeploy';
+import { useActiveServer } from '../useActiveServer';
 
 const router = useRouter();
 const route = useRoute();
+const alertActive = ref(false);
+const alertToggling = ref(false);
+const { triggerDeploy } = useDeploy();
+const { deployError, activeServerId, workOffline } = useActiveServer();
+
+async function fetchAlert() {
+  try {
+    const { data } = await api.get('/alert');
+    alertActive.value = Boolean(data.active);
+  } catch {
+    // ignore
+  }
+}
+
+async function toggleAlert() {
+  if (alertToggling.value) return;
+  alertToggling.value = true;
+  try {
+    const previous = alertActive.value;
+    const { data } = await api.post('/alert/toggle');
+    alertActive.value = Boolean(data.active);
+
+    const result = await triggerDeploy();
+    if (!result.ok) {
+      const { data: reverted } = await api.post('/alert/toggle');
+      alertActive.value = Boolean(reverted.active);
+      deployError.value = {
+        action: 'toggling critical alert',
+        code: result.code,
+        type: result.type,
+        reversed: true,
+      };
+      if (alertActive.value !== previous) alertActive.value = previous;
+    }
+  } catch {
+    // ignore
+  } finally {
+    alertToggling.value = false;
+  }
+}
 
 async function logout() {
   try {
@@ -18,6 +61,8 @@ function toggleServer() {
   if (route.path === '/server') router.back();
   else router.push('/server');
 }
+
+onMounted(fetchAlert);
 </script>
 
 <template>
@@ -28,6 +73,15 @@ function toggleServer() {
         EOD Admin
       </router-link>
       <div class="navbar-actions">
+        <button
+          class="critical-alert-toggle"
+          :class="{ 'critical-alert-toggle--active': alertActive }"
+          @click="toggleAlert"
+          :disabled="alertToggling || (!activeServerId && !workOffline)"
+          :title="(!activeServerId && !workOffline) ? 'Select an active server first' : ''"
+        >
+          {{ alertToggling ? 'Updating + Deploying...' : `Critical Alert: ${alertActive ? 'ON' : 'OFF'}` }}
+        </button>
         <button class="nav-link server-link" @click="toggleServer">⚙ Server</button>
         <button class="btn-secondary btn-sm" @click="logout">Log Out</button>
       </div>
@@ -98,6 +152,27 @@ function toggleServer() {
 .server-link:hover {
   background: var(--text-secondary);
   color: var(--surface);
+}
+
+.critical-alert-toggle {
+  border: none;
+  color: var(--surface);
+  font-size: 13px;
+  padding: 6px 14px;
+  background: #4b5563;
+  border-radius: var(--radius);
+}
+
+.critical-alert-toggle:hover {
+  background: #374151;
+}
+
+.critical-alert-toggle--active {
+  background: #b42318;
+}
+
+.critical-alert-toggle--active:hover {
+  background: #912018;
 }
 
 .user-name {

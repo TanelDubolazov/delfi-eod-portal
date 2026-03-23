@@ -1,7 +1,9 @@
 ---
 import { SITE_TITLE } from '../consts';
+import { ALERT } from '../consts';
 import HeaderLink from './HeaderLink.astro';
 import SocialLinks from './SocialLinks.astro';
+import AlertBanner from './AlertBanner.astro';
 ---
 
 <header>
@@ -15,13 +17,17 @@ import SocialLinks from './SocialLinks.astro';
 			<SocialLinks variant="header" />
 		</div>
 	</nav>
+	<AlertBanner {...ALERT} />
 </header>
 <style>
 	header {
 		margin: 0;
-		padding: 0 1em;
+		padding: 0;
 		background: white;
 		box-shadow: 0 2px 8px rgba(var(--black), 5%);
+	}
+	nav {
+		padding: 0 1em;
 	}
 	h2 {
 		margin: 0;

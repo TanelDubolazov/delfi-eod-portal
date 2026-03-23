@@ -7,13 +7,14 @@ import { useDeploy } from '../useDeploy';
 import DeployErrorBanner from '../components/DeployErrorBanner.vue';
 
 const router = useRouter();
-const { deployError } = useActiveServer();
+const { deployError, activeServerId, workOffline } = useActiveServer();
 const { toast, triggerDeploy } = useDeploy();
 
 const articles = ref<any[]>([]);
 const loading = ref(true);
-const alertActive = ref(false);
-const alertLoading = ref(false);
+const alertMessage = ref('');
+const alertSaving = ref(false);
+const alertDeploying = ref(false);
 const busyArticles = ref<Record<string, string>>({});
 
 const lockByArticleId = ref<Record<string, any>>({});
@@ -121,27 +122,42 @@ async function fetchArticles() {
 async function fetchAlert() {
   try {
     const { data } = await api.get('/alert');
-    alertActive.value = data.active;
+    alertMessage.value = data.message || '';
   } catch {
     // ignore
   }
 }
 
-async function toggleAlert() {
-  alertLoading.value = true;
+async function saveAlertMessage() {
+  const message = alertMessage.value.trim();
+  if (!message) return;
+
+  alertSaving.value = true;
   try {
-    const { data } = await api.post('/alert/toggle');
-    alertActive.value = data.active;
-    const result = await triggerDeploy();
-    if (!result.ok) {
-      const { data: reverted } = await api.post('/alert/toggle');
-      alertActive.value = reverted.active;
-      deployError.value = { action: 'toggling alert banner', code: result.code, type: result.type, reversed: true };
-    }
+    const { data } = await api.put('/alert', { message });
+    alertMessage.value = data.message;
   } catch {
     // ignore
   } finally {
-    alertLoading.value = false;
+    alertSaving.value = false;
+  }
+}
+
+async function deployAlertUpdate() {
+  if (alertDeploying.value || alertSaving.value) return;
+  alertDeploying.value = true;
+  try {
+    const result = await triggerDeploy();
+    if (!result.ok) {
+      deployError.value = {
+        action: 'deploying critical alert update',
+        code: result.code,
+        type: result.type,
+        reversed: false,
+      };
+    }
+  } finally {
+    alertDeploying.value = false;
   }
 }
 
@@ -219,10 +235,30 @@ onUnmounted(() => {
     <div class="dashboard-header">
       <h1>Articles</h1>
       <div style="display:flex; gap: 8px; align-items: center;">
-        <button class="btn-primary" @click="toggleAlert" :disabled="alertLoading">
-          {{ alertLoading ? 'Updating...' : (alertActive ? 'Deactivate Critical Alert' : 'Activate Critical Alert') }}
-        </button>
         <button class="btn-primary" @click="router.push('/articles/new')">+ New Article</button>
+      </div>
+    </div>
+
+    <div class="alert-settings">
+      <label for="alert-message">Critical alert banner text</label>
+      <div class="alert-settings-row">
+        <input
+          id="alert-message"
+          v-model="alertMessage"
+          type="text"
+          placeholder="Critical alert message shown on homepage"
+        />
+        <button class="btn-primary" @click="saveAlertMessage" :disabled="alertSaving || !alertMessage.trim()">
+          {{ alertSaving ? 'Saving...' : 'Save Alert Text' }}
+        </button>
+        <button
+          class="btn-secondary"
+          @click="deployAlertUpdate"
+          :disabled="alertDeploying || alertSaving || (!activeServerId && !workOffline)"
+          :title="(!activeServerId && !workOffline) ? 'Select an active server first' : ''"
+        >
+          {{ alertDeploying ? 'Deploying...' : 'Deploy Critical Alert Update' }}
+        </button>
       </div>
     </div>
 
@@ -309,6 +345,32 @@ onUnmounted(() => {
 
 .dashboard-header h1 {
   font-size: 28px;
+}
+
+.alert-settings {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px;
+  margin-bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.alert-settings label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.alert-settings-row {
+  display: flex;
+  gap: 8px;
+}
+
+.alert-settings-row input {
+  flex: 1;
 }
 
 .articles-list {
