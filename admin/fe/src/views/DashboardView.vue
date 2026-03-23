@@ -276,30 +276,24 @@ onUnmounted(() => {
         {{ toast.message }}
       </div>
     </Transition>
-    <div class="dashboard-header">
-      <h1>Articles</h1>
-      <div style="display: flex; gap: 8px; align-items: center">
-        <button class="btn-primary" @click="router.push('/articles/new')">
-          + New Article
-        </button>
-      </div>
-    </div>
 
+    <h1 class="section-title">Critical Alert Banner Settings</h1>
     <div class="alert-settings">
-      <label for="alert-message">Critical alert banner text</label>
+      <input
+        id="alert-message"
+        v-model="alertMessage"
+        type="text"
+        aria-label="Critical alert banner text"
+        class="alert-message-input"
+        placeholder="Critical alert message shown on homepage"
+      />
       <div class="alert-settings-row">
-        <input
-          id="alert-message"
-          v-model="alertMessage"
-          type="text"
-          placeholder="Critical alert message shown on homepage"
-        />
         <button
           class="btn-primary"
           @click="saveAlertMessage"
           :disabled="alertSaving || !alertMessage.trim()"
         >
-          {{ alertSaving ? "Saving..." : "Save Alert Text" }}
+          {{ alertSaving ? "Saving..." : "Save Critical Alert Banner Text" }}
         </button>
         <button
           class="critical-alert-toggle"
@@ -310,7 +304,7 @@ onUnmounted(() => {
           {{
             alertToggling
               ? "Updating..."
-              : `Critical Alert: ${alertActive ? "ON" : "OFF"}`
+              : `Critical Alert Banner: ${alertActive ? "ON" : "OFF"}`
           }}
         </button>
         <button
@@ -318,7 +312,16 @@ onUnmounted(() => {
           @click="deployAlertUpdate"
           :disabled="alertDeploying || alertSaving"
         >
-          {{ alertDeploying ? "Deploying..." : "Deploy Critical Alert Update" }}
+          {{ alertDeploying ? "Deploying..." : "Deploy Critical Alert Banner Update" }}
+        </button>
+      </div>
+    </div>
+
+    <div class="dashboard-header">
+      <h1>Articles</h1>
+      <div style="display: flex; gap: 8px; align-items: center">
+        <button class="btn-primary" @click="router.push('/articles/new')">
+          + New Article
         </button>
       </div>
     </div>
@@ -414,7 +417,12 @@ onUnmounted(() => {
 }
 
 .dashboard-header h1 {
-  font-size: 28px;
+  font-size: 24px;
+}
+
+.section-title {
+  font-size: 24px;
+  margin: 0 0 12px 0;
 }
 
 .alert-settings {
@@ -428,19 +436,20 @@ onUnmounted(() => {
   gap: 8px;
 }
 
-.alert-settings label {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-secondary);
-}
-
 .alert-settings-row {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
-.alert-settings-row input {
+.alert-message-input {
+  width: 100%;
+}
+
+.alert-settings-row button {
   flex: 1;
+  min-width: 180px;
+  font-size: 13px;
 }
 
 .critical-alert-toggle {
@@ -462,6 +471,13 @@ onUnmounted(() => {
 
 .critical-alert-toggle--active:hover {
   background: #912018;
+}
+
+@media (max-width: 720px) {
+  .alert-settings-row button {
+    width: 100%;
+    min-width: 0;
+  }
 }
 
 .articles-list {
@@ -504,8 +520,10 @@ onUnmounted(() => {
 
 .article-dates {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
 }
 
 .badge {

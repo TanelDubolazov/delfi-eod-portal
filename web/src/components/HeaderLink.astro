@@ -1,8 +1,19 @@
 ---
 const { href, class: className, ...props } = Astro.props;
 const pathname = Astro.url.pathname.replace(import.meta.env.BASE_URL, '');
-const subpath = pathname.match(/[^\/]+/g);
-const isActive = href === pathname || href === '/' + (subpath?.[0] || '');
+
+function normalizePath(value) {
+	if (!value) return '/';
+	if (value === '/') return '/';
+	return value.replace(/\/+$/, '');
+}
+
+const normalizedPathname = normalizePath(pathname);
+const normalizedHref = normalizePath(href);
+const subpath = normalizedPathname.match(/[^\/]+/g);
+const isActive =
+	normalizedHref === normalizedPathname ||
+	(normalizedHref !== '/' && normalizedHref === '/' + (subpath?.[0] || ''));
 ---
 
 <a href={href} class:list={[className, { active: isActive }]} {...props}>
