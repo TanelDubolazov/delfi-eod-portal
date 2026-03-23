@@ -345,7 +345,12 @@ async function deleteRemoteLock(server, slug) {
 export async function getArticleLock(session, slug) {
   const server = getPrimaryServer(session);
   if (!server) {
-    return { available: false, lock: null, error: "No server configured" };
+    return {
+      available: true,
+      lock: null,
+      disabled: true,
+      reason: "No server configured",
+    };
   }
 
   const lock = await readRemoteLock(server, slug);
@@ -358,7 +363,7 @@ export async function getArticleLock(session, slug) {
 export async function acquireArticleLock(session, slug, installationId, token) {
   const server = getPrimaryServer(session);
   if (!server) {
-    return { ok: false, reason: "unavailable", error: "No server configured" };
+    return { ok: true, disabled: true, reason: "No server configured", lock: null };
   }
 
   const nowMs = Date.now();
@@ -384,7 +389,7 @@ export async function acquireArticleLock(session, slug, installationId, token) {
 export async function refreshArticleLock(session, slug, installationId, token) {
   const server = getPrimaryServer(session);
   if (!server) {
-    return { ok: false, reason: "unavailable", error: "No server configured" };
+    return { ok: true, disabled: true, reason: "No server configured", lock: null };
   }
 
   const nowMs = Date.now();
@@ -420,6 +425,9 @@ export async function releaseArticleLock(session, slug, token) {
 }
 
 export async function validateArticleLock(session, slug, token) {
+  const server = getPrimaryServer(session);
+  if (!server) return { ok: true, disabled: true, reason: "No server configured" };
+
   if (!token) return { ok: false, reason: "missing" };
 
   const state = await getArticleLock(session, slug);

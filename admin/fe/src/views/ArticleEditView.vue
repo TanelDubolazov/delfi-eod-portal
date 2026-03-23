@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed } from 'vue';
-import { useRouter, useRoute } from 'vue-router';
+import { useRouter, useRoute, onBeforeRouteLeave } from 'vue-router';
 import EasyMDE from 'easymde';
 import 'easymde/dist/easymde.min.css';
 import api from '../api';
@@ -14,6 +14,7 @@ const error = ref('');
 const lockToken = ref('');
 const lockHeartbeatHandle = ref<number | null>(null);
 const lockReady = ref(false);
+const releasingLock = ref(false);
 
 function getInstallationId() {
   const key = 'eod-installation-id';
@@ -79,7 +80,9 @@ function setupMarkdownEditor() {
 }
 
 async function releaseLock() {
+  if (releasingLock.value) return;
   if (isNew.value || !articleId.value || !lockToken.value) return;
+  releasingLock.value = true;
   try {
     await api.post(`/articles/${articleId.value}/lock/release`, {
       token: lockToken.value,
@@ -93,6 +96,7 @@ async function releaseLock() {
       window.clearInterval(lockHeartbeatHandle.value);
       lockHeartbeatHandle.value = null;
     }
+    releasingLock.value = false;
   }
 }
 
@@ -176,6 +180,10 @@ onUnmounted(() => {
   void releaseLock();
   markdownEditor.value?.toTextArea();
   markdownEditor.value = null;
+});
+
+onBeforeRouteLeave(async () => {
+  await releaseLock();
 });
 
 async function save() {
