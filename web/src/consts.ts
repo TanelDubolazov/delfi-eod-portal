@@ -5,7 +5,7 @@ export const SITE_TITLE = "Delfi Crisis Portal";
 export const SITE_DESCRIPTION = "Emergency Operation Delfi";
 export const ALERT = {
   active: true,
-  message: "THIS IS NOT A REAL NEWS PORTAL! IT IS FOR DEMONSTRATION PURPOSES ONLY!!",
+  message: "THIS IS NOT A REAL NEWS PORTAL! IT IS FOR DEMONSTRATION PURPOSES ONLY!",
 };
 
 export const FOOTER_COPYRIGHT_TEXT =

@@ -64,24 +64,3 @@ cd fe && npm run dev
 | POST   | `/api/images/upload`          | Upload image        |
 | GET    | `/api/images/:slug`           | List article images |
 | DELETE | `/api/images/:slug/:filename` | Delete image        |
-
-## Storage format
-
-Each article lives in `news-vault/<slug>/`:
-
-- `live.md` is the published version used by Astro.
-- `draft.md` is the editable pending version in admin.
-
-```
----
-title: "Article title"
-description: "Short summary"
-pubDate: 2026-03-05T10:30:00.000Z
-updatedDate: 2026-03-05T10:30:00.000Z
-heroImage: "./media/lead.jpg"
----
-
-Markdown body content
-```
-
-Images are stored alongside in `news-vault/<slug>/media/`.

@@ -14,3 +14,7 @@ dist/
 
 .DS_Store.vite
 .DS_Store
+
+
+binaries/
+usb-runtime/

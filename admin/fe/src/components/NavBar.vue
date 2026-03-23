@@ -1,50 +1,67 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, watch } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import api from '../api';
-import { useDeploy } from '../useDeploy';
 import { useActiveServer } from '../useActiveServer';
 
 const router = useRouter();
 const route = useRoute();
-const alertActive = ref(false);
-const alertToggling = ref(false);
-const { triggerDeploy } = useDeploy();
+const previewBuilding = ref(false);
+const currentServerName = ref('No active server');
 const { deployError, activeServerId, workOffline } = useActiveServer();
 
-async function fetchAlert() {
+async function fetchCurrentServerName() {
+  if (workOffline.value) {
+    currentServerName.value = 'Offline mode';
+    return;
+  }
+
+  if (!activeServerId.value) {
+    currentServerName.value = 'No active server';
+    return;
+  }
+
   try {
-    const { data } = await api.get('/alert');
-    alertActive.value = Boolean(data.active);
+    const { data } = await api.get('/server');
+    const active = (Array.isArray(data) ? data : []).find((server: any) => server.id === activeServerId.value);
+    currentServerName.value = active?.name || 'No active server';
   } catch {
-    // ignore
+    currentServerName.value = 'No active server';
   }
 }
 
-async function toggleAlert() {
-  if (alertToggling.value) return;
-  alertToggling.value = true;
+async function buildPreview() {
+  if (previewBuilding.value) return;
+  const previewWindow = window.open('', '_blank');
+  previewBuilding.value = true;
   try {
-    const previous = alertActive.value;
-    const { data } = await api.post('/alert/toggle');
-    alertActive.value = Boolean(data.active);
-
-    const result = await triggerDeploy();
-    if (!result.ok) {
-      const { data: reverted } = await api.post('/alert/toggle');
-      alertActive.value = Boolean(reverted.active);
+    const { data } = await api.post('/server/build-preview');
+    if (data.success) {
+      if (previewWindow) {
+        previewWindow.location.href = 'http://localhost:4321';
+        previewWindow.focus();
+      } else {
+        window.open('http://localhost:4321', '_blank');
+      }
+    } else {
+      if (previewWindow) previewWindow.close();
       deployError.value = {
-        action: 'toggling critical alert',
-        code: result.code,
-        type: result.type,
-        reversed: true,
+        action: 'building preview',
+        code: data.details || 'Build failed',
+        type: 'build',
+        reversed: false,
       };
-      if (alertActive.value !== previous) alertActive.value = previous;
     }
-  } catch {
-    // ignore
+  } catch (err: any) {
+    if (previewWindow) previewWindow.close();
+    deployError.value = {
+      action: 'building preview',
+      code: err.response?.data?.error || err.message || 'Build failed',
+      type: 'build',
+      reversed: false,
+    };
   } finally {
-    alertToggling.value = false;
+    previewBuilding.value = false;
   }
 }
 
@@ -62,27 +79,32 @@ function toggleServer() {
   else router.push('/server');
 }
 
-onMounted(fetchAlert);
+watch([activeServerId, workOffline], () => {
+  void fetchCurrentServerName();
+});
+
+onMounted(() => {
+  void fetchCurrentServerName();
+});
 </script>
 
 <template>
-  <nav class="navbar" v-if="route.name !== 'Login'">
+  <nav class="navbar" v-if="route.name && route.name !== 'Login'">
     <div class="navbar-inner">
       <router-link to="/" class="navbar-brand">
         <img src="/delfi.png" alt="Delfi" class="brand-logo" />
-        EOD Admin
+        <span class="brand-text">EOD Admin</span>
       </router-link>
       <div class="navbar-actions">
         <button
-          class="critical-alert-toggle"
-          :class="{ 'critical-alert-toggle--active': alertActive }"
-          @click="toggleAlert"
-          :disabled="alertToggling || (!activeServerId && !workOffline)"
-          :title="(!activeServerId && !workOffline) ? 'Select an active server first' : ''"
+          class="preview-btn"
+          @click="buildPreview"
+          :disabled="previewBuilding"
         >
-          {{ alertToggling ? 'Updating + Deploying...' : `Critical Alert: ${alertActive ? 'ON' : 'OFF'}` }}
+          {{ previewBuilding ? 'Building Preview...' : 'Build Preview' }}
         </button>
         <button class="nav-link server-link" @click="toggleServer">⚙ Server</button>
+        <span class="current-server">Current server: {{ currentServerName }}</span>
         <button class="btn-secondary btn-sm" @click="logout">Log Out</button>
       </div>
     </div>
@@ -100,8 +122,7 @@ onMounted(fetchAlert);
 }
 
 .navbar-inner {
-  max-width: 1200px;
-  margin: 0 auto;
+  width: 100%;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -121,6 +142,10 @@ onMounted(fetchAlert);
 .brand-logo {
   height: 28px;
   width: auto;
+}
+
+.brand-text {
+  display: inline;
 }
 
 .navbar-actions {
@@ -154,7 +179,13 @@ onMounted(fetchAlert);
   color: var(--surface);
 }
 
-.critical-alert-toggle {
+.current-server {
+  font-size: 13px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.preview-btn {
   border: none;
   color: var(--surface);
   font-size: 13px;
@@ -163,16 +194,12 @@ onMounted(fetchAlert);
   border-radius: var(--radius);
 }
 
-.critical-alert-toggle:hover {
+.preview-btn:hover {
   background: #374151;
 }
 
-.critical-alert-toggle--active {
-  background: #b42318;
-}
-
-.critical-alert-toggle--active:hover {
-  background: #912018;
+.preview-btn:disabled {
+  opacity: 0.6;
 }
 
 .user-name {
@@ -183,5 +210,17 @@ onMounted(fetchAlert);
 .btn-sm {
   padding: 6px 14px;
   font-size: 13px;
+}
+
+@media (max-width: 980px) {
+  .current-server {
+    display: none;
+  }
+}
+
+@media (max-width: 720px) {
+  .brand-text {
+    display: none;
+  }
 }
 </style>

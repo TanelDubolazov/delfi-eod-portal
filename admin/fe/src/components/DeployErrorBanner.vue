@@ -1,8 +1,10 @@
 <script setup lang="ts">
-import { useRouter } from 'vue-router';
-import { useActiveServer } from '../useActiveServer';
+import { useRouter } from "vue-router";
+import { useActiveServer } from "../useActiveServer";
 
-withDefaults(defineProps<{ showChangeServer?: boolean }>(), { showChangeServer: true });
+withDefaults(defineProps<{ showChangeServer?: boolean }>(), {
+  showChangeServer: true,
+});
 
 const router = useRouter();
 const { deployError } = useActiveServer();
@@ -13,15 +15,20 @@ function copyError() {
 
 function changeServer() {
   deployError.value = null;
-  router.push('/server');
+  router.push("/server");
 }
 </script>
 
 <template>
   <div v-if="deployError" class="deploy-error-banner">
     <div class="deploy-error-main">
-      <strong>Latest build failed</strong> while trying {{ deployError.action }}.
-      {{ deployError.reversed ? 'Changes have been reversed.' : 'The live site was not updated.' }}
+      <strong>Latest build failed</strong> while trying
+      {{ deployError.action }}.
+      {{
+        deployError.reversed
+          ? "Changes have been reversed."
+          : "The live site was not updated."
+      }}
     </div>
     <div class="deploy-error-code">
       <span class="deploy-error-label">Error:</span>
@@ -30,11 +37,13 @@ function changeServer() {
     </div>
     <div class="deploy-error-actions">
       <template v-if="showChangeServer">
-        <button class="btn-secondary btn-sm" @click="changeServer">Change server</button>
-        <span class="deploy-error-sep">or</span>
-        <a href="mailto:dev@example.com" class="deploy-error-contact">Contact developer</a>
+        <button class="btn-secondary btn-sm" @click="changeServer">
+          Click here to add or choose a server
+        </button>
       </template>
-      <button class="deploy-error-dismiss" @click="deployError = null">Dismiss</button>
+      <button class="deploy-error-dismiss" @click="deployError = null">
+        Dismiss
+      </button>
     </div>
   </div>
 </template>
@@ -51,11 +60,23 @@ function changeServer() {
   gap: 8px;
 }
 
-.deploy-error-main { font-size: 14px; color: #7f1d1d; }
+.deploy-error-main {
+  font-size: 14px;
+  color: #7f1d1d;
+}
 
-.deploy-error-code { display: flex; align-items: center; gap: 8px; }
+.deploy-error-code {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
 
-.deploy-error-label { font-size: 12px; font-weight: 600; color: #991b1b; flex-shrink: 0; }
+.deploy-error-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #991b1b;
+  flex-shrink: 0;
+}
 
 .deploy-error-text {
   font-size: 12px;
@@ -80,13 +101,27 @@ function changeServer() {
   cursor: pointer;
   flex-shrink: 0;
 }
-.deploy-error-copy:hover { background: #fee2e2; }
+.deploy-error-copy:hover {
+  background: #fee2e2;
+}
 
-.deploy-error-actions { display: flex; align-items: center; gap: 8px; margin-top: 2px; }
+.deploy-error-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+}
 
-.deploy-error-sep { font-size: 13px; color: #991b1b; }
+.deploy-error-sep {
+  font-size: 13px;
+  color: #991b1b;
+}
 
-.deploy-error-contact { font-size: 13px; color: #991b1b; text-decoration: underline; }
+.deploy-error-contact {
+  font-size: 13px;
+  color: #991b1b;
+  text-decoration: underline;
+}
 
 .deploy-error-dismiss {
   margin-left: auto;
