@@ -3,6 +3,7 @@ import { execSync } from "child_process";
 import fs from "fs";
 import path from "path";
 import SftpClient from "ssh2-sftp-client";
+import * as ftp from "basic-ftp";
 import { S3Client, HeadBucketCommand, PutObjectCommand } from "@aws-sdk/client-s3";
 import { updateCredentials } from "../auth/crypto.js";
 
@@ -37,6 +38,7 @@ serverRouter.get("/", (req, res) => {
     const m = { ...s };
     if (m.s3SecretKey) m.s3SecretKey = maskSecret(m.s3SecretKey);
     if (m.sftpPassword) m.sftpPassword = maskSecret(m.sftpPassword);
+    if (m.ftpPassword) m.ftpPassword = maskSecret(m.ftpPassword);
     return m;
   });
   res.json(masked);
@@ -46,7 +48,7 @@ serverRouter.put("/", (req, res) => {
   const { id, name, type, ...fields } = req.body;
 
   if (!name || !name.trim()) return res.status(400).json({ error: "Name required" });
-  if (!type || !["s3", "sftp"].includes(type)) {
+  if (!type || !["s3", "sftp", "ftp", "ftps"].includes(type)) {
     return res.status(400).json({ error: "Invalid connection type" });
   }
 
@@ -54,8 +56,14 @@ serverRouter.put("/", (req, res) => {
     if (!fields.s3Bucket || !fields.s3AccessKey) {
       return res.status(400).json({ error: "Bucket and access key required" });
     }
-  } else if (!fields.sftpHost || !fields.sftpUsername) {
-    return res.status(400).json({ error: "Host and username required" });
+  } else if (type === "sftp") {
+    if (!fields.sftpHost || !fields.sftpUsername) {
+      return res.status(400).json({ error: "Host and username required" });
+    }
+  } else if (type === "ftp" || type === "ftps") {
+    if (!fields.ftpHost || !fields.ftpUsername) {
+      return res.status(400).json({ error: "Host and username required" });
+    }
   }
 
   const servers = getServers(req.session);
@@ -67,11 +75,17 @@ serverRouter.put("/", (req, res) => {
       s3AccessKey: fields.s3AccessKey, s3SecretKey: fields.s3SecretKey,
       s3Region: fields.s3Region || "",
     });
-  } else {
+  } else if (type === "sftp") {
     Object.assign(server, {
       sftpHost: fields.sftpHost, sftpPort: fields.sftpPort || 22,
       sftpUsername: fields.sftpUsername, sftpPassword: fields.sftpPassword,
       sftpPath: fields.sftpPath || "/",
+    });
+  } else if (type === "ftp" || type === "ftps") {
+    Object.assign(server, {
+      ftpHost: fields.ftpHost, ftpPort: fields.ftpPort || 21,
+      ftpUsername: fields.ftpUsername, ftpPassword: fields.ftpPassword,
+      ftpPath: fields.ftpPath || "/",
     });
   }
 
@@ -81,6 +95,7 @@ serverRouter.put("/", (req, res) => {
     const existing = servers[idx];
     if (type === "s3" && !fields.s3SecretKey) server.s3SecretKey = existing.s3SecretKey;
     if (type === "sftp" && !fields.sftpPassword) server.sftpPassword = existing.sftpPassword;
+    if ((type === "ftp" || type === "ftps") && !fields.ftpPassword) server.ftpPassword = existing.ftpPassword;
     server.id = id;
     servers[idx] = server;
   } else {
@@ -118,36 +133,61 @@ serverRouter.post("/:id/test", async (req, res) => {
   const start = Date.now();
 
   try {
-    if (server.type === "sftp") {
-      const sftp = new SftpClient();
-      await sftp.connect({
-        host: server.sftpHost,
-        port: server.sftpPort || 22,
-        username: server.sftpUsername,
-        password: server.sftpPassword,
-        tryKeyboard: true,
-        authHandler: ["password", "keyboard-interactive"],
-        readyTimeout: 10000,
-      });
-      const list = await sftp.list(server.sftpPath || "/");
-      await sftp.end();
-      res.json({ success: true, ms: Date.now() - start, details: `${list.length} items in ${server.sftpPath || "/"}` });
-
-    } else if (server.type === "s3") {
-      const clientConfig = {
-        region: server.s3Region || "us-east-1",
-        credentials: {
-          accessKeyId: server.s3AccessKey,
-          secretAccessKey: server.s3SecretKey,
-        },
-      };
-      if (server.s3Endpoint) {
-        clientConfig.endpoint = server.s3Endpoint;
-        clientConfig.forcePathStyle = true;
+    switch (server.type) {
+      case "sftp": {
+        const sftp = new SftpClient();
+        await sftp.connect({
+          host: server.sftpHost,
+          port: server.sftpPort || 22,
+          username: server.sftpUsername,
+          password: server.sftpPassword,
+          tryKeyboard: true,
+          authHandler: ["password", "keyboard-interactive"],
+          readyTimeout: 10000,
+        });
+        const list = await sftp.list(server.sftpPath || "/");
+        await sftp.end();
+        res.json({ success: true, ms: Date.now() - start, details: `${list.length} items in ${server.sftpPath || "/"}` });
+        break;
       }
-      const s3 = new S3Client(clientConfig);
-      await s3.send(new HeadBucketCommand({ Bucket: server.s3Bucket }));
-      res.json({ success: true, ms: Date.now() - start, details: `Bucket '${server.s3Bucket}' is accessible` });
+
+      case "ftp":
+      case "ftps": {
+        const client = new ftp.Client();
+        client.ftp.verbose = false;
+        await client.access({
+          host: server.ftpHost,
+          port: server.ftpPort || 21,
+          user: server.ftpUsername,
+          password: server.ftpPassword,
+          secure: server.type === "ftps",
+        });
+        const list = await client.list(server.ftpPath || "/");
+        client.close();
+        res.json({ success: true, ms: Date.now() - start, details: `${list.length} items in ${server.ftpPath || "/"}` });
+        break;
+      }
+
+      case "s3": {
+        const clientConfig = {
+          region: server.s3Region || "us-east-1",
+          credentials: {
+            accessKeyId: server.s3AccessKey,
+            secretAccessKey: server.s3SecretKey,
+          },
+        };
+        if (server.s3Endpoint) {
+          clientConfig.endpoint = server.s3Endpoint;
+          clientConfig.forcePathStyle = true;
+        }
+        const s3 = new S3Client(clientConfig);
+        await s3.send(new HeadBucketCommand({ Bucket: server.s3Bucket }));
+        res.json({ success: true, ms: Date.now() - start, details: `Bucket '${server.s3Bucket}' is accessible` });
+        break;
+      }
+
+      default:
+        res.status(400).json({ error: "Unsupported type" });
     }
   } catch (err) {
     const detail = err.code ? `[${err.code}] ${err.message}` : err.message;
@@ -188,68 +228,19 @@ serverRouter.post("/:id/deploy", async (req, res) => {
 
     const files = collectFiles(distDir);
 
-    if (server.type === "sftp") {
-      const sftp = new SftpClient();
-      await sftp.connect({
-        host: server.sftpHost,
-        port: server.sftpPort || 22,
-        username: server.sftpUsername,
-        password: server.sftpPassword,
-        tryKeyboard: true,
-        authHandler: ["password", "keyboard-interactive"],
-        readyTimeout: 10000,
-      });
-
-      const remotePath = server.sftpPath || "/";
-      for (const { full, relative } of files) {
-        const dest = remotePath.replace(/\/$/, "") + "/" + relative.replace(/\\/g, "/");
-        const destDir = dest.substring(0, dest.lastIndexOf("/"));
-        await sftp.mkdir(destDir, true);
-        await sftp.put(full, dest);
-      }
-
-      await sftp.end();
-
-    } else if (server.type === "s3") {
-      const s3Config = {
-        region: server.s3Region || "us-east-1",
-        credentials: {
-          accessKeyId: server.s3AccessKey,
-          secretAccessKey: server.s3SecretKey,
-        },
-      };
-      if (server.s3Endpoint) {
-        s3Config.endpoint = server.s3Endpoint;
-        s3Config.forcePathStyle = true;
-      }
-      const s3 = new S3Client(s3Config);
-
-      for (const { full, relative } of files) {
-        const key = relative.replace(/\\/g, "/");
-        const body = fs.readFileSync(full);
-        const ext = path.extname(full).toLowerCase();
-        const contentTypes = {
-          ".html": "text/html",
-          ".css": "text/css",
-          ".js": "application/javascript",
-          ".json": "application/json",
-          ".xml": "application/xml",
-          ".svg": "image/svg+xml",
-          ".png": "image/png",
-          ".jpg": "image/jpeg",
-          ".jpeg": "image/jpeg",
-          ".webp": "image/webp",
-          ".woff": "font/woff",
-          ".woff2": "font/woff2",
-          ".ico": "image/x-icon",
-        };
-        await s3.send(new PutObjectCommand({
-          Bucket: server.s3Bucket,
-          Key: key,
-          Body: body,
-          ContentType: contentTypes[ext] || "application/octet-stream",
-        }));
-      }
+    switch (server.type) {
+      case "sftp":
+        await uploadSFTP(server, files);
+        break;
+      case "ftp":
+      case "ftps":
+        await uploadFTP(server, files);
+        break;
+      case "s3":
+        await uploadS3(server, files);
+        break;
+      default:
+        throw new Error("Unsupported type");
     }
 
     res.json({ success: true, ms: Date.now() - start, details: `${files.length} files deployed to ${server.name}` });
@@ -258,3 +249,93 @@ serverRouter.post("/:id/deploy", async (req, res) => {
     res.json({ success: false, ms: Date.now() - start, details: detail });
   }
 });
+
+const CONTENT_TYPES = {
+  ".html": "text/html",
+  ".css": "text/css",
+  ".js": "application/javascript",
+  ".json": "application/json",
+  ".xml": "application/xml",
+  ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".webp": "image/webp",
+  ".avif": "image/avif",
+  ".gif": "image/gif",
+  ".woff": "font/woff",
+  ".woff2": "font/woff2",
+  ".ico": "image/x-icon",
+  ".txt": "text/plain",
+};
+
+async function uploadSFTP(server, files) {
+  const sftp = new SftpClient();
+  await sftp.connect({
+    host: server.sftpHost,
+    port: server.sftpPort || 22,
+    username: server.sftpUsername,
+    password: server.sftpPassword,
+    tryKeyboard: true,
+    authHandler: ["password", "keyboard-interactive"],
+    readyTimeout: 10000,
+  });
+
+  const remotePath = server.sftpPath || "/";
+  for (const { full, relative } of files) {
+    const dest = remotePath.replace(/\/$/, "") + "/" + relative.replace(/\\/g, "/");
+    const destDir = dest.substring(0, dest.lastIndexOf("/"));
+    await sftp.mkdir(destDir, true);
+    await sftp.put(full, dest);
+  }
+
+  await sftp.end();
+}
+
+async function uploadFTP(server, files) {
+  const client = new ftp.Client();
+  client.ftp.verbose = false;
+  await client.access({
+    host: server.ftpHost,
+    port: server.ftpPort || 21,
+    user: server.ftpUsername,
+    password: server.ftpPassword,
+    secure: server.type === "ftps",
+  });
+
+  const remotePath = server.ftpPath || "/";
+  for (const { full, relative } of files) {
+    const dest = remotePath.replace(/\/$/, "") + "/" + relative.replace(/\\/g, "/");
+    await client.ensureDir(dest.substring(0, dest.lastIndexOf("/")));
+    await client.uploadFrom(full, dest);
+  }
+
+  client.close();
+}
+
+async function uploadS3(server, files) {
+  const s3Config = {
+    region: server.s3Region || "us-east-1",
+    credentials: {
+      accessKeyId: server.s3AccessKey,
+      secretAccessKey: server.s3SecretKey,
+    },
+  };
+  if (server.s3Endpoint) {
+    s3Config.endpoint = server.s3Endpoint;
+    s3Config.forcePathStyle = true;
+  }
+  const s3 = new S3Client(s3Config);
+
+  for (const { full, relative } of files) {
+    const key = relative.replace(/\\/g, "/");
+    const body = fs.readFileSync(full);
+    const ext = path.extname(full).toLowerCase();
+    await s3.send(new PutObjectCommand({
+      Bucket: server.s3Bucket,
+      Key: key,
+      Body: body,
+      ContentType: CONTENT_TYPES[ext] || "application/octet-stream",
+    }));
+  }
+}
