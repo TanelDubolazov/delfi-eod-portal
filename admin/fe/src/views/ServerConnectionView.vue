@@ -32,7 +32,7 @@ function getDeployResult(id: string) {
 interface Server {
   id: string;
   name: string;
-  type: 's3' | 'sftp';
+  type: 's3' | 'sftp' | 'ftp' | 'ftps';
   [key: string]: any;
 }
 
@@ -40,9 +40,10 @@ const servers = ref<Server[]>([]);
 const editing = ref<string | null>(null);
 
 const name = ref('');
-const type = ref<'s3' | 'sftp'>('sftp');
+const type = ref<'s3' | 'sftp' | 'ftp' | 'ftps'>('sftp');
 const s3 = ref({ endpoint: '', bucket: '', accessKey: '', secretKey: '', region: '' });
 const sftp = ref({ host: '', port: 22, username: '', password: '', path: '/' });
+const ftpRef = ref({ host: '', port: 21, username: '', password: '', path: '/' });
 
 async function fetchServers() {
   loading.value = true;
@@ -63,6 +64,7 @@ function startNew() {
   type.value = 'sftp';
   s3.value = { endpoint: '', bucket: '', accessKey: '', secretKey: '', region: '' };
   sftp.value = { host: '', port: 22, username: '', password: '', path: '/' };
+  ftpRef.value = { host: '', port: 21, username: '', password: '', path: '/' };
   error.value = '';
 }
 
@@ -79,13 +81,21 @@ function startEdit(server: Server) {
       secretKey: '',
       region: server.s3Region || '',
     };
-  } else {
+  } else if (server.type === 'sftp') {
     sftp.value = {
       host: server.sftpHost || '',
       port: server.sftpPort || 22,
       username: server.sftpUsername || '',
       password: '',
       path: server.sftpPath || '/',
+    };
+  } else if (server.type === 'ftp' || server.type === 'ftps') {
+    ftpRef.value = {
+      host: server.ftpHost || '',
+      port: server.ftpPort || 21,
+      username: server.ftpUsername || '',
+      password: '',
+      path: server.ftpPath || '/',
     };
   }
 }
@@ -108,12 +118,18 @@ async function save() {
     payload.s3AccessKey = s3.value.accessKey;
     payload.s3SecretKey = s3.value.secretKey;
     payload.s3Region = s3.value.region;
-  } else {
+  } else if (type.value === 'sftp') {
     payload.sftpHost = sftp.value.host;
     payload.sftpPort = sftp.value.port;
     payload.sftpUsername = sftp.value.username;
     payload.sftpPassword = sftp.value.password;
     payload.sftpPath = sftp.value.path;
+  } else if (type.value === 'ftp' || type.value === 'ftps') {
+    payload.ftpHost = ftpRef.value.host;
+    payload.ftpPort = ftpRef.value.port;
+    payload.ftpUsername = ftpRef.value.username;
+    payload.ftpPassword = ftpRef.value.password;
+    payload.ftpPath = ftpRef.value.path;
   }
 
   try {
@@ -239,12 +255,22 @@ onMounted(fetchServers);
               :class="['type-btn', { active: type === 's3' }]"
               type="button"
               @click="type = 's3'"
-            >S3 / Object Storage</button>
+            >S3</button>
             <button
               :class="['type-btn', { active: type === 'sftp' }]"
               type="button"
               @click="type = 'sftp'"
-            >SFTP</button>
+            >SFTP (SSH)</button>
+            <button
+              :class="['type-btn', { active: type === 'ftps' }]"
+              type="button"
+              @click="type = 'ftps'"
+            >FTPS (TLS)</button>
+            <button
+              :class="['type-btn', { active: type === 'ftp' }]"
+              type="button"
+              @click="type = 'ftp'"
+            >FTP</button>
           </div>
 
           <template v-if="type === 's3'">
@@ -297,6 +323,34 @@ onMounted(fetchServers);
               <label>Remote Path</label>
               <input v-model="sftp.path" placeholder="/var/www/portal" />
             </div>
+          </template>
+
+          <template v-if="type === 'ftp' || type === 'ftps'">
+            <div class="form-row">
+              <div class="form-group" style="flex: 2">
+                <label>Host</label>
+                <input v-model="ftpRef.host" placeholder="ftp.example.com" />
+              </div>
+              <div class="form-group" style="flex: 1">
+                <label>Port</label>
+                <input v-model.number="ftpRef.port" type="number" />
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label>Username</label>
+                <input v-model="ftpRef.username" placeholder="deploy-user" />
+              </div>
+              <div class="form-group">
+                <label>Password</label>
+                <input v-model="ftpRef.password" type="password" placeholder="Enter password" />
+              </div>
+            </div>
+            <div class="form-group">
+              <label>Remote Path</label>
+              <input v-model="ftpRef.path" placeholder="/var/www/portal" />
+            </div>
+            <div v-if="type === 'ftp'" class="warning-msg">⚠ Plain FTP sends credentials unencrypted. Use FTPS or SFTP when possible.</div>
           </template>
 
           <div class="error-msg" v-if="error">{{ error }}</div>
@@ -532,5 +586,15 @@ onMounted(fetchServers);
   text-align: center;
   padding: 40px;
   color: var(--text-secondary);
+}
+
+.warning-msg {
+  background: #fff8e1;
+  color: #8d6e00;
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  margin-bottom: 12px;
+  border: 1px solid #ffe082;
 }
 </style>
