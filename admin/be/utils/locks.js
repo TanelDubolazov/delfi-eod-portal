@@ -1,4 +1,6 @@
 import SftpClient from "ssh2-sftp-client";
+import * as ftp from "basic-ftp";
+import { Readable, Writable } from "stream";
 import {
   S3Client,
   DeleteObjectCommand,
@@ -8,6 +10,26 @@ import {
 
 const LOCK_TTL_MS = 30 * 60 * 1000;
 const LOCKS_DIR = ".locks";
+
+function isMissingPathError(error) {
+  const code = String(error?.code || error?.name || "").toUpperCase();
+  const message = String(error?.message || "").toLowerCase();
+
+  if (
+    code === "ENOENT" ||
+    code === "NOSUCHKEY" ||
+    code === "NOTFOUND" ||
+    code === "550"
+  ) {
+    return true;
+  }
+
+  return (
+    message.includes("no such file") ||
+    message.includes("not found") ||
+    message.includes("does not exist")
+  );
+}
 
 function getServers(session) {
   const creds = session?.serverCredentials || {};
@@ -62,14 +84,21 @@ function isExpired(lock, nowMs = Date.now()) {
   return nowMs >= expiresMs;
 }
 
-function buildLockPayload(slug, installationId, token, nowMs = Date.now(), priorLock = null) {
+function buildLockPayload(
+  slug,
+  installationId,
+  token,
+  nowMs = Date.now(),
+  priorLock = null,
+) {
   return {
     slug,
     installationId,
     token,
-    acquiredAt: priorLock?.token === token && priorLock?.acquiredAt
-      ? priorLock.acquiredAt
-      : toIso(nowMs),
+    acquiredAt:
+      priorLock?.token === token && priorLock?.acquiredAt
+        ? priorLock.acquiredAt
+        : toIso(nowMs),
     heartbeatAt: toIso(nowMs),
     expiresAt: toIso(nowMs + LOCK_TTL_MS),
   };
@@ -106,13 +135,18 @@ async function readRemoteLock(server, slug) {
         readyTimeout: 10000,
       });
 
-      const exists = await sftp.exists(lockPath);
-      if (!exists) return null;
+      try {
+        const exists = await sftp.exists(lockPath);
+        if (!exists) return null;
 
-      const raw = await sftp.get(lockPath);
-      if (Buffer.isBuffer(raw)) return parseLockOrNull(raw.toString("utf-8"));
-      if (typeof raw === "string") return parseLockOrNull(raw);
-      return null;
+        const raw = await sftp.get(lockPath);
+        if (Buffer.isBuffer(raw)) return parseLockOrNull(raw.toString("utf-8"));
+        if (typeof raw === "string") return parseLockOrNull(raw);
+        return null;
+      } catch (error) {
+        if (isMissingPathError(error)) return null;
+        throw error;
+      }
     } finally {
       await sftp.end().catch(() => {});
     }
@@ -131,9 +165,46 @@ async function readRemoteLock(server, slug) {
       const raw = await readBodyToString(res.Body);
       return parseLockOrNull(raw);
     } catch (error) {
-      const code = error?.name || error?.Code || error?.code;
-      if (code === "NoSuchKey" || code === "NotFound") return null;
+      if (isMissingPathError(error)) return null;
       throw error;
+    }
+  }
+
+  if (server.type === "ftp" || server.type === "ftps") {
+    const client = new ftp.Client();
+    client.ftp.verbose = false;
+    const basePath = server.ftpPath || "/";
+    const lockDir = `${basePath.replace(/\/$/, "")}/${LOCKS_DIR}`;
+    const lockPath = `${lockDir}/${lockFilename(slug)}`;
+
+    try {
+      await client.access({
+        host: server.ftpHost,
+        port: server.ftpPort || 21,
+        user: server.ftpUsername,
+        password: server.ftpPassword,
+        secure: server.type === "ftps",
+      });
+
+      const chunks = [];
+      const sink = new Writable({
+        write(chunk, _enc, cb) {
+          chunks.push(Buffer.from(chunk));
+          cb();
+        },
+      });
+
+      try {
+        await client.downloadTo(sink, lockPath);
+      } catch (error) {
+        if (isMissingPathError(error)) return null;
+        throw error;
+      }
+
+      const raw = Buffer.concat(chunks).toString("utf-8");
+      return parseLockOrNull(raw);
+    } finally {
+      client.close();
     }
   }
 
@@ -181,6 +252,30 @@ async function writeRemoteLock(server, slug, lockData) {
       }),
     );
   }
+
+  if (server.type === "ftp" || server.type === "ftps") {
+    const client = new ftp.Client();
+    client.ftp.verbose = false;
+    const basePath = server.ftpPath || "/";
+    const lockDir = `${basePath.replace(/\/$/, "")}/${LOCKS_DIR}`;
+    const lockPath = `${lockDir}/${lockFilename(slug)}`;
+
+    try {
+      await client.access({
+        host: server.ftpHost,
+        port: server.ftpPort || 21,
+        user: server.ftpUsername,
+        password: server.ftpPassword,
+        secure: server.type === "ftps",
+      });
+
+      await client.ensureDir(lockDir);
+      await client.uploadFrom(Readable.from([raw]), lockPath);
+      return;
+    } finally {
+      client.close();
+    }
+  }
 }
 
 async function deleteRemoteLock(server, slug) {
@@ -219,6 +314,32 @@ async function deleteRemoteLock(server, slug) {
       }),
     );
   }
+
+  if (server.type === "ftp" || server.type === "ftps") {
+    const client = new ftp.Client();
+    client.ftp.verbose = false;
+    const basePath = server.ftpPath || "/";
+    const lockPath = `${basePath.replace(/\/$/, "")}/${LOCKS_DIR}/${lockFilename(slug)}`;
+
+    try {
+      await client.access({
+        host: server.ftpHost,
+        port: server.ftpPort || 21,
+        user: server.ftpUsername,
+        password: server.ftpPassword,
+        secure: server.type === "ftps",
+      });
+
+      try {
+        await client.remove(lockPath);
+      } catch (error) {
+        if (!isMissingPathError(error)) throw error;
+      }
+      return;
+    } finally {
+      client.close();
+    }
+  }
 }
 
 export async function getArticleLock(session, slug) {
@@ -229,7 +350,8 @@ export async function getArticleLock(session, slug) {
 
   const lock = await readRemoteLock(server, slug);
   if (!lock) return { available: true, lock: null };
-  if (isExpired(lock)) return { available: true, lock: null, expiredLock: lock };
+  if (isExpired(lock))
+    return { available: true, lock: null, expiredLock: lock };
   return { available: true, lock };
 }
 
@@ -290,7 +412,8 @@ export async function releaseArticleLock(session, slug, token) {
 
   const current = await readRemoteLock(server, slug);
   if (!current) return { ok: true };
-  if (current.token !== token) return { ok: false, reason: "locked", lock: current };
+  if (current.token !== token)
+    return { ok: false, reason: "locked", lock: current };
 
   await deleteRemoteLock(server, slug);
   return { ok: true };
@@ -300,9 +423,11 @@ export async function validateArticleLock(session, slug, token) {
   if (!token) return { ok: false, reason: "missing" };
 
   const state = await getArticleLock(session, slug);
-  if (!state.available) return { ok: false, reason: "unavailable", error: state.error };
+  if (!state.available)
+    return { ok: false, reason: "unavailable", error: state.error };
   if (!state.lock) return { ok: false, reason: "missing" };
-  if (state.lock.token !== token) return { ok: false, reason: "locked", lock: state.lock };
+  if (state.lock.token !== token)
+    return { ok: false, reason: "locked", lock: state.lock };
 
   return { ok: true, lock: state.lock };
 }
