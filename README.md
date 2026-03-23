@@ -14,11 +14,14 @@ Build portable runtime folders (Node binary + preinstalled backend dependencies 
 node scripts/build-runtime.mjs
 ```
 
+The script automatically downloads required portable Node.js archives into `binaries/` (if missing) and verifies checksums from official Node.js SHASUMS.
+It also caches checksums in `binaries/SHASUMS256-v24.14.0.txt` so builds continue to work offline after the first successful online run.
+
 This creates:
 
-- `runtime/win-x64`
-- `runtime/macos-arm64`
-- `runtime/linux-x64`
+- `usb-runtime/win-x64`
+- `usb-runtime/macos-arm64`
+- `usb-runtime/linux-x64`
 
 Each runtime can be copied to a USB drive and started on matching OS/CPU with:
 
@@ -28,7 +31,7 @@ Each runtime can be copied to a USB drive and started on matching OS/CPU with:
 
 Notes:
 
-- `web/dist` must exist before running the runtime build script.
+- `web/dist` is built automatically by the runtime build script.
 - `admin/fe/dist` is built automatically by the script.
 - Runtime includes `web/package.json`, `web/src`, and target-specific `web/node_modules` so CMS deploy can rebuild Astro directly on USB.
 - Backend `node_modules` are installed per target OS/CPU so native modules (for example `sharp`) match the runtime.

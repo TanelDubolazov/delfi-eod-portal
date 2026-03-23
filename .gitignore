@@ -17,6 +17,7 @@ dist/
 
 
 binaries/
+usb-runtime/
 linux-x64/
 macos-arm64/
 win-x64/
