@@ -42,10 +42,10 @@ cd ../..
 Or start them separately:
 
 ```bash
-# Backend (http://localhost:3001)
+# Backend (http://127.0.0.1:3001)
 cd be && npm run dev
 
-# Frontend (http://localhost:5173)
+# Frontend (http://127.0.0.1:5173)
 cd fe && npm run dev
 ```
 

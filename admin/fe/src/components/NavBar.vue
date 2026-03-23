@@ -38,10 +38,10 @@ async function buildPreview() {
     const { data } = await api.post('/server/build-preview');
     if (data.success) {
       if (previewWindow) {
-        previewWindow.location.href = 'http://localhost:4321';
+        previewWindow.location.href = 'http://127.0.0.1:4321';
         previewWindow.focus();
       } else {
-        window.open('http://localhost:4321', '_blank');
+        window.open('http://127.0.0.1:4321', '_blank');
       }
     } else {
       if (previewWindow) previewWindow.close();

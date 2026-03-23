@@ -277,9 +277,9 @@ async function uploadImage(event: Event, context: 'lead' | 'article') {
     });
 
     if (context === 'lead') {
-      form.value.leadImage = `http://localhost:3001${data.url}`;
+      form.value.leadImage = `http://127.0.0.1:3001${data.url}`;
     } else {
-      const markdownImage = `\n![${file.name.replace(/\.[^.]+$/, '')}](http://localhost:3001${data.url})\n`;
+      const markdownImage = `\n![${file.name.replace(/\.[^.]+$/, '')}](http://127.0.0.1:3001${data.url})\n`;
       markdownEditor.value?.codemirror.replaceSelection(markdownImage);
       form.value.body = markdownEditor.value?.value() || form.value.body;
     }

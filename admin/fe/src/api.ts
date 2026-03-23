@@ -5,6 +5,12 @@ const api = axios.create({
   baseURL: '/api',
 });
 
+api.interceptors.request.use((config) => {
+  config.headers = config.headers ?? {};
+  config.headers['x-eod-requested-by'] = 'delfi-eod-admin';
+  return config;
+});
+
 api.interceptors.response.use(
   (res) => res,
   (err) => {
