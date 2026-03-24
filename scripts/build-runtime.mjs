@@ -1,4 +1,5 @@
 import fs from 'fs/promises';
+import { createWriteStream, createReadStream } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { spawnSync } from 'child_process';
@@ -68,25 +69,31 @@ function downloadFile(url, destinationPath) {
             return;
           }
 
-          const chunks = [];
-          res.on('data', (chunk) => chunks.push(chunk));
-          res.on('end', async () => {
+          const fileStream = createWriteStream(tmpPath);
+          res.pipe(fileStream);
+          fileStream.on('finish', async () => {
             try {
-              await fs.writeFile(tmpPath, Buffer.concat(chunks));
               await fs.rename(tmpPath, destinationPath);
               resolve();
             } catch (error) {
               reject(error);
             }
           });
+          fileStream.on('error', reject);
+          res.on('error', reject);
         }).on('error', reject);
       });
   });
 }
 
-async function sha256File(filePath) {
-  const content = await fs.readFile(filePath);
-  return createHash('sha256').update(content).digest('hex');
+function sha256File(filePath) {
+  return new Promise((resolve, reject) => {
+    const hash = createHash('sha256');
+    const stream = createReadStream(filePath);
+    stream.on('data', (chunk) => hash.update(chunk));
+    stream.on('end', () => resolve(hash.digest('hex')));
+    stream.on('error', reject);
+  });
 }
 
 function parseShasums(rawText) {
@@ -150,10 +157,13 @@ async function ensureNodeArchives() {
   }
 }
 
+const isWindows = process.platform === 'win32';
+
 function run(command, args, cwd, env = {}) {
   const result = spawnSync(command, args, {
     cwd,
     stdio: 'inherit',
+    shell: isWindows,
     env: { ...process.env, ...env },
   });
   if (result.status !== 0) {
@@ -179,7 +189,23 @@ async function extractNodeArchive(archivePath, targetNodeDir) {
   await fs.mkdir(tempDir, { recursive: true });
 
   if (archivePath.endsWith('.zip')) {
-    run('unzip', ['-q', archivePath, '-d', tempDir], rootDir);
+    if (isWindows) {
+      run('powershell', ['-NoProfile', '-Command', `Expand-Archive -Path '${archivePath}' -DestinationPath '${tempDir}'`], rootDir);
+    } else {
+      run('unzip', ['-q', archivePath, '-d', tempDir], rootDir);
+    }
+  } else if (isWindows) {
+    // On Windows, tar cannot create Unix symlinks so we ignore errors.
+    spawnSync('tar', ['-xf', archivePath, '-C', tempDir], {
+      cwd: rootDir,
+      stdio: 'inherit',
+      shell: true,
+      env: process.env,
+    });
+    const entries = await fs.readdir(tempDir).catch(() => []);
+    if (entries.length === 0) {
+      throw new Error(`tar extraction produced no output for ${archivePath}`);
+    }
   } else {
     run('tar', ['-xf', archivePath, '-C', tempDir], rootDir);
   }
@@ -191,7 +217,11 @@ async function extractNodeArchive(archivePath, targetNodeDir) {
   }
 
   await fs.mkdir(path.dirname(targetNodeDir), { recursive: true });
-  await fs.rename(path.join(tempDir, firstDir.name), targetNodeDir);
+  try {
+    await fs.rename(path.join(tempDir, firstDir.name), targetNodeDir);
+  } catch {
+    await fs.cp(path.join(tempDir, firstDir.name), targetNodeDir, { recursive: true });
+  }
   await fs.rm(tempDir, { recursive: true, force: true });
 }
 
@@ -207,8 +237,6 @@ async function validateRuntimeLayout(target, runtimeRoot) {
   const requiredPaths = [
     nodeExecutable,
     path.join(runtimeRoot, path.basename(target.launcher)),
-    path.join(runtimeRoot, 'README.md'),
-    path.join(runtimeRoot, 'USER_MANUAL.md'),
     path.join(runtimeRoot, 'admin', 'be', 'index.js'),
     path.join(runtimeRoot, 'admin', 'be', 'node_modules'),
     path.join(runtimeRoot, 'admin', 'fe', 'dist', 'index.html'),
@@ -274,9 +302,6 @@ async function prepareTargetRuntime(target) {
     path.join(rootDir, 'scripts', 'runtime', 'site-server.mjs'),
     path.join(runtimeRoot, 'scripts', 'runtime', 'site-server.mjs'),
   );
-
-  await fs.copyFile(path.join(rootDir, 'README.md'), path.join(runtimeRoot, 'README.md'));
-  await fs.copyFile(path.join(rootDir, 'USER_MANUAL.md'), path.join(runtimeRoot, 'USER_MANUAL.md'));
 
   await fs.copyFile(launcherPath, path.join(runtimeRoot, path.basename(launcherPath)));
 
