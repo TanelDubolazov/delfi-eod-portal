@@ -16,8 +16,8 @@ FE_PID=$!
 trap 'kill $BE_PID $FE_PID 2>/dev/null; exit 0' SIGINT SIGTERM
 
 echo ""
-echo "  Backend  → http://127.0.0.1:3001"
-echo "  Frontend → http://127.0.0.1:5173"
+echo "  Backend  → http://localhost:3001"
+echo "  Frontend → http://localhost:5173"
 echo ""
 echo "  Press any key to stop both servers..."
 echo ""

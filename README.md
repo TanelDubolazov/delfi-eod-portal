@@ -1,147 +1,198 @@
-# Delfi Emergency Operation Portal
+# Delfi EOD - Emergency Operation Portal
 
-## 1. Overview
-Emergency Operation Delfi (EOD) is a crisis communication tool designed for quickly administering and publishing content
-during crisis mode of operation -- in the event that primary infrastructure is degraded or unavailable.
-The goal is a simple, portable, resilient, static-first website building in a lightweight admin editor
-that can migrate content to a new host in 15-60 minutes.
+> For end-user usage instructions see [USER_MANUAL.md](USER_MANUAL.md).
 
-- Admin UI: local-first, password-protected encryption to secrets, soft-lock editing.
-- Public site: static HTML/CSS/JS + structured content (JSON + markdown).
+## What is it
 
-- Source content under `news-vault/` and `web/src/content` (depending on implementation mode).
+A crisis communication portal for Delfi. If primary infrastructure (AWS, Cloudflare, etc.) goes down, EOD provides a parallel static website on a separate domain (e.g. `eod.delfi.ee`) where editors can keep publishing updates.
 
-## 2. What it does
-- Build static public crisis portal with Home, Article, and Contact pages.
-    - Critical alert banner with immediate visibility.
-    - Article metadata: title, lead, lead image, body, author, publish date.
-    - Auto-resized images and local asset handling (via static build process).
-- Admin for content editing with CRUD workflows: create/edit/publish/unpublish articles.
-- Soft-lock mechanism: indicates when an article is being edited.
-- Minimal dependencies to avoid vendor lock-in.
+The whole system runs off a USB stick. Plug it in, launch the start script, write articles, hit deploy. The public site is plain HTML - no backend needed to serve it.
 
-## 3. Core architecture
-- `web/` Astro static site generator for public-facing pages.
-- `admin/` Express backend plus Vue frontend for article management.
-- locally ran admin approach for maximum security
-- Storage options:
-  - local filesystem (`news-vault/`)
-  - static output (for deployment to S3-compatible bucket/FTP/SFTP)
+## How it works
 
-### 3.1 Diagram of information flow towards audience
+![Pipeline overview](img/pipeline-overview.png.png)
+
+The admin is a local Express server (port 3001) with a Vue frontend. It reads/writes markdown files in `news-vault/`, rebuilds the Astro site into `web/dist/`, and uploads that to whichever hosting target is configured. The public site is entirely static - if admin goes down, the site stays up.
+
+## Project structure
+
 ```
-+---------------------+              +-----------------------+
-| Visitors routed via |     <---     |  Source (S3/FTP/Local)|
-| DNS (eod.delfi.ee)  |              | (build artifacts)     |
-+---------------------+              +-----------------------+
-                                         ^
-                                         |
-                                         v
-                                +-----------------+
-                                | Admin Console   |
-                                | (admin/*)       |
-                                +-----------------+
+delfi-eod-portal/
+├── admin/
+│   ├── be/                    # Express backend
+│   │   ├── index.js           # Server entry, session, CORS, routes
+│   │   ├── auth/              # Password hashing, encryption, session auth
+│   │   ├── data/store.js      # Article CRUD - reads/writes news-vault/
+│   │   ├── routes/            # articles, images, alert, server connection
+│   │   └── utils/             # Soft locks (remote), slugify, markdown
+│   └── fe/                    # Vue 3 + TypeScript frontend
+│       └── src/
+│           ├── views/         # Dashboard, ArticleEdit, Login, ServerConnection
+│           └── components/    # NavBar, DeployErrorBanner
+├── web/                       # Astro static site (public portal)
+│   └── src/
+│       ├── pages/             # index, [slug], contact
+│       ├── components/        # Header, Footer, AlertBanner
+│       └── content.config.ts  # Reads news-vault/ markdown
+├── news-vault/                # Article content (markdown + images per folder)
+├── scripts/
+│   ├── build-runtime.mjs      # Builds USB-portable runtimes for 3 OS targets
+│   └── runtime/               # Start scripts (start.bat, start.sh, start.command)
+├── binaries/                  # Cached portable Node.js archives
+├── usb-runtime/               # Built runtime output (win-x64, macos-arm64, linux-x64)
+├── dev.sh                     # Dev launcher - starts BE + FE together
+└── .admin/                    # Created at runtime - password hash, encrypted credentials
 ```
 
-## 4. Setup and usage
+## Developer setup
 
-### 4.1 USB runtime packaging
-
-Build portable runtime folders (Node binary + preinstalled backend dependencies + built frontend/site assets):
+Requirements: Node.js ≥ 18 (developed on v24).
 
 ```bash
+# Install deps
+cd admin/be && npm install
+cd ../fe && npm install
+cd ../../web && npm install
+cd ..
+
+# Run admin (backend + frontend)
+./dev.sh
+```
+
+This starts:
+- Backend at `http://127.0.0.1:3001`
+- Frontend at `http://127.0.0.1:5173`
+
+To run the public site locally:
+
+```bash
+cd web && npm run dev
+```
+
+## Building the USB runtime
+
+From the project root:
+
+```
 node scripts/build-runtime.mjs
 ```
 
-The script automatically downloads required portable Node.js archives into `binaries/` (if missing) and verifies checksums from official Node.js SHASUMS.
-It also caches checksums in `binaries/SHASUMS256-v24.14.0.txt` so builds continue to work offline after the first successful online run.
+This downloads portable Node.js binaries (with checksum verification), installs per-OS `node_modules` (so native deps like `sharp` work), builds `admin/fe/dist` and `web/dist`, and packages everything into three folders:
 
-This creates:
+| Folder | OS | Start script |
+|---|---|---|
+| `usb-runtime/win-x64/` | Windows | `start.bat` |
+| `usb-runtime/macos-arm64/` | macOS (Apple Silicon) | `start.command` |
+| `usb-runtime/linux-x64/` | Linux | `start.sh` |
 
-- `usb-runtime/win-x64`
-- `usb-runtime/macos-arm64`
-- `usb-runtime/linux-x64`
+![Build output on Windows](img/example_win_build.png)
 
-Each runtime can be copied to a USB drive and started on matching OS/CPU with:
+### Copying to USB
 
-- Windows: `start.bat`
-- macOS: `start.command`
-- Linux: `start.sh`
+If you know which OS the USB will be used on, copy just that folder to the drive. For a universal USB that works on any machine, copy all three - the user picks the appropriate folder.
 
-Notes:
+Each runtime is self-contained: portable Node binary, pre-installed dependencies, built frontend, built public site. No internet or pre-installed Node required on the target machine.
 
-- `web/dist` is built automatically by the runtime build script.
-- `admin/fe/dist` is built automatically by the script.
-- Runtime includes `web/package.json`, `web/src`, and target-specific `web/node_modules` so CMS deploy can rebuild Astro directly on USB.
-- Backend `node_modules` are installed per target OS/CPU so native modules (for example `sharp`) match the runtime.
+## Deployment targets
 
-In Server Connection view:
+The admin UI supports configuring multiple hosting targets:
 
-- `Build Preview` rebuilds local `web/dist` only (no upload) so editors can verify changes at `http://127.0.0.1:4321`.
-- `Deploy` rebuilds and uploads to the selected server target.
+- **S3** (or S3-compatible like MinIO, DigitalOcean Spaces)
+- **SFTP** (SSH-based)
+- **FTPS** (TLS-based)
+- **FTP** (plain - warns about unencrypted credentials)
 
-### 4.2 Admin application
-1. `cd admin/be`
-2. `npm install`
-3. `cd ../fe`
-4. `npm install`
-5. `cd ../..`
-6. `./dev.sh`
-4. Open admin `http://localhost:####` - follow full link with port from output
-> Default encryption protection by password entered on first run locally  : configured in `admin/be/ auth/middleware.js`, 
-stored in folder /.admin/ once set.
+![Adding a server connection](img/add_server.png)
 
-### 4.3 Local deployment (front-end) - for testing purposes and/or local hosting
-1. `cd web`
-2. `npm install`
-3. `npm run dev`
-4. Open `http://localhost:####` - follow full link with port from output
+Each server can be tested and deployed to independently from the Server Connection view.
 
-## 5. Building static output
-1. `cd web`
-2. `npm run build`
-3. Output is in `web/dist` (HTML, CSS, JS, assets, structured JSON as needed).
-4. For S3/FTP deploy, sync `web/dist` to destination.
+![Server test result](img/server_test.png)
 
-## 6. Deployment targets
-- S3/S3-compatible object storage
-- SFTP / FTPS / FTP hosting
-- Local static server (`serve web/dist`) for air-gapped operation (or manual copy of web page)
+"Deploy" rebuilds `web/dist` and uploads it to the selected target. "Build Preview" only rebuilds locally so changes can be verified at `http://127.0.0.1:4321`.
 
-## 7. Security model
-- Admin console not publicly exposed, air-gapped service only started on demand from local endpoints
-- Admin paths are not indexable by default (no sitemap references + robots.txt deny in admin route).
-- Public content is static, no secrets shipped.
-- Authentication with bcrypt session cookie and brute-force middleware.
-- Supports local-only admin bind by setting host to `127.0.0.1`.
+## Security
 
-## 8. Migration / fallback
-- Less than one-hour migration is possible by shipping `web/dist` and `news-vault/` to another host and replacing DNS A/CNAME to parallel domain.
-- No third-party services in the critical path.
+**Admin is local-only.** It binds to `127.0.0.1` - not publicly accessible, no routes exposed to the internet. This is by design: the admin runs entirely off the USB stick, nothing is installed or written to the host machine.
 
-### 8.1 For migration, please ensure you have built and successfully run the admin application as per section `4. Setup and usage` first
+**Password handling:**
+- Admin password is hashed with bcrypt (cost 12). The plaintext is never stored.
+- The hash lives in `.admin/config.json`.
 
-### 8.2 Connecting server / hosting target
-- Once the application is running, please log on to the admin application in the same local machine
-  - You can find the login link from application startup console, example ➜  Local:   http://localhost:5173/ 
-- Please start by setting a password to protect your server / hosting target secrets
-  - Note that you cannot recover a forgotten password and can reinitiate the application password only by deleting the password 
-    along with the secrets by removing folder `.admin/`
-- To initiate a new server connection / hosting target, please click on Server (upper right side of the header)
-  - Once configured, try with "Test" (test status will inform of issues/success) and Deploy once ready to publish and start editing on a connection
-  - Click "+ Add Server" for adding additional connections; "Edit" or "Delete" for modifying or removing a connection
+**Server credential storage:**
+- Hosting credentials (S3 keys, SFTP/FTP passwords) are encrypted with AES-256-GCM.
+- The encryption key is derived from the admin password via scrypt.
+- Encrypted blob is stored in `.admin/credentials.enc`.
+- Decrypted credentials exist only in memory while the session is active. They never leave `.admin/` in plaintext and are gone when the server stops.
 
-## 9. FAQ
-- `Q: Can the public site work if admin is down?`
-  - Yes. Public output is static build; admin is separate.
-- `Q: Can the admin application upload to multiple hosting targets at teh same time?`
-  - Yes. It is possible to deploy to multiple S3, FTPS (TLS), SFTP (SSH), FTP connections simultaneously.
-- `Q: Can multiple journalists/editors work on the content simultaneously?`
-  - Yes. Soft lock warns of simultaneous editing on an article, but the remaining functionality can be used by a team.
-- `Q: How to add a new article manually?`
-  - Add markdown/JSON in the source folder and run build.
+![.admin/ secrets folder](img/secrets_folder.png)
 
-## 11. Notes
-- Admin application fills all assignment requirements (public, static, portable, secure, low risk).
-- Focus on clarity and simplicity over complexity.
-- Includes a minimal working admin console and a performant static site. Local front end application for local deployment or live development added.
+**Sessions:**
+- Express session with httpOnly cookie, 30-minute expiry, SameSite=lax.
+- CSRF protection via custom header on state-changing requests.
+- In-memory session store - all sessions disappear when the USB server stops.
+
+**Public site:**
+- Static HTML/CSS/JS/images. No secrets, no backend, no API calls.
+- Fully CDN-compatible (Cloudflare, CloudFront, Akamai, etc.).
+
+## Content handling
+
+Articles are stored as markdown files in `news-vault/`, one folder per article:
+
+```
+news-vault/
+├── 2026-03-19-electricity-price-shock/
+│   ├── live.md          # Published version (frontmatter + body)
+│   └── media/           # Article images (auto-resized by sharp)
+```
+
+The admin writes to `news-vault/` directly. The Astro site reads from it via a glob loader in `content.config.ts`. Publishing triggers a rebuild + deploy.
+
+**Soft locks:** When an editor opens an article, a lock file is written to the hosting target (`.locks/` directory). Other editors see the article is being edited. Locks expire after 30 minutes and refresh every 5 minutes while the editor is active.
+
+## Article editing features
+
+![Article editor](img/editor.png)
+
+- Title, lead text, lead image, body (markdown with EasyMDE editor), author, publish date
+- Image upload with auto-resize (sharp) - both lead image and inline body images
+- Publish / unpublish with automatic deploy
+- Critical alert banner toggle (deploys immediately)
+- Draft state tracking - shows "Published + Changes Pending" when edits haven't been deployed yet
+
+![Alert banner on the public site](img/alert_banner.png)
+
+## Migration under one hour
+
+1. Have the USB runtime ready
+2. Set up a new hosting target (S3 bucket, FTP server, etc.)
+3. In admin: Server Connection → Add Server → enter credentials → Test → Deploy
+4. Point DNS (A record or CNAME) for the crisis domain to the new host
+
+The bottleneck is step 2 - the actual build and deploy has never taken more than two minutes in our testing and usually finishes under one (S3 deploys average 20-30 seconds). The site is static, so any hosting that serves files will work. No database, no runtime, no backend dependencies on the public side.
+
+## Single points of failure
+
+| Component | What if it fails? | Mitigation |
+|---|---|---|
+| USB stick | Can't edit/publish new content | Carry a second USB as backup; plug into any machine |
+| Hosting target | Site goes down | Multiple targets can be configured; redeploy to another |
+| DNS | Domain unreachable | Out of scope - coordinate with DNS provider |
+| Node.js binary | Admin won't start | Bundled in USB runtime, verified with checksums |
+
+## FAQ
+
+**Can the public site work if admin is down?**
+Yes. The public site is just static files. Admin is only needed for editing and deploying.
+
+**Can editors work simultaneously?**
+Yes. Soft locks warn when someone is already editing an article. Other articles and features remain usable. Locks are per-article, not global.
+
+**Can I deploy to multiple hosts at once?**
+Yes. Configure several servers and deploy to each. Useful for staging + production or for redundancy.
+
+**How do I recover a forgotten password?**
+You can't. Delete the `.admin/` folder and set up again. Server credentials will need to be re-entered.
+
+**Can I add articles without the admin UI?**
+Yes. Create a folder in `news-vault/` with a `live.md` file (frontmatter + markdown body) and rebuild.
