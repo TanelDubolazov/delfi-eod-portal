@@ -207,6 +207,8 @@ async function validateRuntimeLayout(target, runtimeRoot) {
   const requiredPaths = [
     nodeExecutable,
     path.join(runtimeRoot, path.basename(target.launcher)),
+    path.join(runtimeRoot, 'README.md'),
+    path.join(runtimeRoot, 'USER_MANUAL.md'),
     path.join(runtimeRoot, 'admin', 'be', 'index.js'),
     path.join(runtimeRoot, 'admin', 'be', 'node_modules'),
     path.join(runtimeRoot, 'admin', 'fe', 'dist', 'index.html'),
@@ -272,6 +274,9 @@ async function prepareTargetRuntime(target) {
     path.join(rootDir, 'scripts', 'runtime', 'site-server.mjs'),
     path.join(runtimeRoot, 'scripts', 'runtime', 'site-server.mjs'),
   );
+
+  await fs.copyFile(path.join(rootDir, 'README.md'), path.join(runtimeRoot, 'README.md'));
+  await fs.copyFile(path.join(rootDir, 'USER_MANUAL.md'), path.join(runtimeRoot, 'USER_MANUAL.md'));
 
   await fs.copyFile(launcherPath, path.join(runtimeRoot, path.basename(launcherPath)));
 
