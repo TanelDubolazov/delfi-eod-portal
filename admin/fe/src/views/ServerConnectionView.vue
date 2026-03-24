@@ -41,7 +41,7 @@ const editing = ref<string | null>(null);
 
 const name = ref('');
 const type = ref<'s3' | 'sftp' | 'ftp' | 'ftps'>('sftp');
-const s3 = ref({ endpoint: '', bucket: '', accessKey: '', secretKey: '', region: '' });
+const s3 = ref({ endpoint: '', bucket: '', accessKey: '', secretKey: '', region: '', cloudFrontDistributionId: '' });
 const sftp = ref({ host: '', port: 22, username: '', password: '', path: '/' });
 const ftpRef = ref({ host: '', port: 21, username: '', password: '', path: '/' });
 
@@ -62,7 +62,7 @@ function startNew() {
   editing.value = 'new';
   name.value = '';
   type.value = 'sftp';
-  s3.value = { endpoint: '', bucket: '', accessKey: '', secretKey: '', region: '' };
+  s3.value = { endpoint: '', bucket: '', accessKey: '', secretKey: '', region: '', cloudFrontDistributionId: '' };
   sftp.value = { host: '', port: 22, username: '', password: '', path: '/' };
   ftpRef.value = { host: '', port: 21, username: '', password: '', path: '/' };
   error.value = '';
@@ -80,6 +80,7 @@ function startEdit(server: Server) {
       accessKey: server.s3AccessKey || '',
       secretKey: '',
       region: server.s3Region || '',
+      cloudFrontDistributionId: server.s3CloudFrontDistributionId || '',
     };
   } else if (server.type === 'sftp') {
     sftp.value = {
@@ -118,6 +119,7 @@ async function save() {
     payload.s3AccessKey = s3.value.accessKey;
     payload.s3SecretKey = s3.value.secretKey;
     payload.s3Region = s3.value.region;
+    payload.s3CloudFrontDistributionId = s3.value.cloudFrontDistributionId;
   } else if (type.value === 'sftp') {
     payload.sftpHost = sftp.value.host;
     payload.sftpPort = sftp.value.port;
@@ -295,6 +297,10 @@ onMounted(fetchServers);
             <div class="form-group">
               <label>Region <span class="optional">(optional)</span></label>
               <input v-model="s3.region" placeholder="eu-central-1" />
+            </div>
+            <div class="form-group">
+              <label>CloudFront Distribution ID <span class="optional">(optional, enables deploy invalidation)</span></label>
+              <input v-model="s3.cloudFrontDistributionId" placeholder="E1234567890ABC" />
             </div>
           </template>
 

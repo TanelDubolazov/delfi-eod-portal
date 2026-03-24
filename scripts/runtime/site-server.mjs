@@ -27,9 +27,18 @@ const mime = new Map([
   ['.txt', 'text/plain; charset=utf-8'],
 ]);
 
-function send(res, code, body, type = 'text/plain; charset=utf-8') {
-  res.writeHead(code, { 'Content-Type': type });
+function send(res, code, body, type = 'text/plain; charset=utf-8', headers = {}) {
+  res.writeHead(code, { 'Content-Type': type, ...headers });
   res.end(body);
+}
+
+function getCacheControl(filePath) {
+  const relative = path.relative(siteRoot, filePath).replace(/\\/g, '/');
+  const ext = path.extname(filePath).toLowerCase();
+
+  if (ext === '.html') return 'public, max-age=0, s-maxage=60, stale-while-revalidate=300';
+  if (relative.startsWith('_astro/')) return 'public, max-age=31536000, immutable';
+  return 'public, max-age=3600';
 }
 
 function resolveFile(urlPathname) {
@@ -64,9 +73,10 @@ const server = http.createServer((req, res) => {
 
   const ext = path.extname(file).toLowerCase();
   const contentType = mime.get(ext) || 'application/octet-stream';
+  const cacheControl = getCacheControl(file);
   try {
     const body = fs.readFileSync(file);
-    send(res, 200, body, contentType);
+    send(res, 200, body, contentType, { 'Cache-Control': cacheControl });
   } catch {
     send(res, 500, 'Internal Server Error');
   }
