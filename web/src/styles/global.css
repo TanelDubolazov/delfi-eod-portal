@@ -6,7 +6,6 @@
 
 :root {
 	--accent: #2337ff;
-	--accent-dark: #000d8a;
 	--black: 15, 18, 25;
 	--gray: 96, 115, 159;
 	--gray-light: 229, 233, 240;
@@ -79,9 +78,6 @@ b {
 	font-weight: 700;
 }
 a {
-	color: var(--accent);
-}
-a:hover {
 	color: var(--accent);
 }
 p {

@@ -3,8 +3,7 @@ const { href, class: className, ...props } = Astro.props;
 const pathname = Astro.url.pathname.replace(import.meta.env.BASE_URL, '');
 
 function normalizePath(value) {
-	if (!value) return '/';
-	if (value === '/') return '/';
+	if (!value || value === '/') return '/';
 	return value.replace(/\/+$/, '');
 }
 
