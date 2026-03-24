@@ -64,7 +64,8 @@ If no server is set as active, a banner reminds you:
 ### Testing and deploying
 
 - **Test** - checks if the connection works. Shows success/failure with response time.
-- **Deploy** - rebuilds the public site and uploads everything to this server.
+- **Deploy** - rebuilds the public site and uploads everything to this server. Also syncs all article content to the server.
+- **Pull Content** - downloads article content from the server to your local USB. Use this when another editor has deployed updates and you want to get their latest articles.
 - **Build Preview** - rebuilds locally only (no upload) so you can check at `http://127.0.0.1:4321`
 
 ![Successful server test](img/server_test.png)

@@ -17,9 +17,11 @@ const loading = ref(true);
 const saving = ref(false);
 const testing = ref<string | null>(null);
 const deploying = ref<string | null>(null);
+const pulling = ref<string | null>(null);
 const error = ref('');
 const testResults = ref<Record<string, { success: boolean; ms: number; details: string }>>({})
 const deployResults = ref<Record<string, { success: boolean; ms: number; details: string }>>({})
+const pullResults = ref<Record<string, { success: boolean; ms: number; details: string }>>({})
 
 function getTestResult(id: string) {
   return testResults.value[id] || null;
@@ -27,6 +29,10 @@ function getTestResult(id: string) {
 
 function getDeployResult(id: string) {
   return deployResults.value[id] || null;
+}
+
+function getPullResult(id: string) {
+  return pullResults.value[id] || null;
 }
 
 interface Server {
@@ -152,6 +158,7 @@ async function deleteServer(id: string) {
     if (activeServerId.value === id) activeServerId.value = null;
     delete testResults.value[id];
     delete deployResults.value[id];
+    delete pullResults.value[id];
     await fetchServers();
   } catch (err: any) {
     error.value = err.response?.data?.error || 'Delete failed';
@@ -181,6 +188,19 @@ async function deployServer(id: string) {
     deployResults.value[id] = { success: false, ms: 0, details: err.response?.data?.error || 'Deploy failed' };
   } finally {
     deploying.value = null;
+  }
+}
+
+async function pullServer(id: string) {
+  pulling.value = id;
+  delete pullResults.value[id];
+  try {
+    const { data } = await api.post(`/server/${id}/pull`);
+    pullResults.value[id] = data;
+  } catch (err: any) {
+    pullResults.value[id] = { success: false, ms: 0, details: err.response?.data?.error || 'Pull failed' };
+  } finally {
+    pulling.value = null;
   }
 }
 
@@ -221,8 +241,11 @@ onMounted(fetchServers);
               <button class="btn-secondary btn-sm" @click.prevent="testServer(s.id)" :disabled="testing === s.id || deploying === s.id">
                 {{ testing === s.id ? 'Testing...' : 'Test' }}
               </button>
-              <button class="btn-primary btn-sm" @click.prevent="deployServer(s.id)" :disabled="deploying === s.id || testing === s.id">
+              <button class="btn-primary btn-sm" @click.prevent="deployServer(s.id)" :disabled="deploying === s.id || testing === s.id || pulling === s.id">
                 {{ deploying === s.id ? 'Deploying...' : 'Deploy' }}
+              </button>
+              <button class="btn-secondary btn-sm" @click.prevent="pullServer(s.id)" :disabled="pulling === s.id || deploying === s.id || testing === s.id">
+                {{ pulling === s.id ? 'Pulling...' : 'Pull Content' }}
               </button>
               <button class="btn-secondary btn-sm" @click.prevent="editing === s.id ? cancelEdit() : startEdit(s)">{{ editing === s.id ? 'Close' : 'Edit' }}</button>
               <button class="btn-danger btn-sm" @click.prevent="deleteServer(s.id)">Delete</button>
@@ -237,6 +260,11 @@ onMounted(fetchServers);
             {{ getDeployResult(s.id)?.success ? '✓ Deployed' : '✗ Deploy failed' }}
             <span class="result-ms">({{ ((getDeployResult(s.id)?.ms ?? 0) / 1000).toFixed(1) }}s)</span>
             — {{ getDeployResult(s.id)?.details }}
+          </div>
+          <div v-if="getPullResult(s.id)" :class="['result-banner', getPullResult(s.id)?.success ? 'result-ok' : 'result-err']">
+            {{ getPullResult(s.id)?.success ? '✓ Pulled' : '✗ Pull failed' }}
+            <span class="result-ms">({{ ((getPullResult(s.id)?.ms ?? 0) / 1000).toFixed(1) }}s)</span>
+            — {{ getPullResult(s.id)?.details }}
           </div>
         </div>
       </div>

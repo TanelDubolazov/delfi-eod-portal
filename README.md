@@ -174,6 +174,8 @@ news-vault/
 
 The admin writes to `news-vault/` directly. The Astro site reads from it via a glob loader in `content.config.ts`. Publishing triggers a rebuild + deploy.
 
+**Content sync:** Every deploy also uploads the full `news-vault/` to a `.content/` directory on the hosting target. A second USB stick can pull that content down using the "Pull Content" button in the Server Connection view. This enables multi-USB workflows - one editor publishes, another pulls the latest articles before continuing.
+
 **Soft locks:** When an editor opens an article, a lock file is written to the hosting target (`.locks/` directory). Other editors see the article is being edited. Locks expire after 30 minutes and refresh every 5 minutes while the editor is active.
 
 **External links:** The header and footer both include a shared `SocialLinks` component (`web/src/components/SocialLinks.astro`) with placeholder links. Update the URLs in that single component to point to whatever Delfi considers essential (e.g. main site, social media, government crisis pages) - the change applies to both header and footer.

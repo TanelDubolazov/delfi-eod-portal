@@ -4,9 +4,10 @@ import fs from "fs";
 import path from "path";
 import SftpClient from "ssh2-sftp-client";
 import * as ftp from "basic-ftp";
-import { S3Client, HeadBucketCommand, PutObjectCommand } from "@aws-sdk/client-s3";
+import { S3Client, HeadBucketCommand, PutObjectCommand, GetObjectCommand, ListObjectsV2Command } from "@aws-sdk/client-s3";
 import { CloudFrontClient, CreateInvalidationCommand } from "@aws-sdk/client-cloudfront";
 import { updateCredentials } from "../auth/crypto.js";
+import { getNewsVault } from "../data/store.js";
 
 export const serverRouter = Router();
 
@@ -241,6 +242,14 @@ serverRouter.post("/:id/deploy", async (req, res) => {
   const start = Date.now();
 
   try {
+    // Pull latest content from server before building
+    const newsVault = getNewsVault();
+    switch (server.type) {
+      case "sftp": await pullSFTP(server, newsVault); break;
+      case "ftp": case "ftps": await pullFTP(server, newsVault); break;
+      case "s3": await pullS3(server, newsVault); break;
+    }
+
     ensureWebBuildInputs(webDir);
     runAstroBuild(webDir);
 
@@ -276,7 +285,26 @@ serverRouter.post("/:id/deploy", async (req, res) => {
         throw new Error("Unsupported type");
     }
 
-    let details = `${files.length} files deployed to ${server.name}`;
+    // Sync news-vault to remote .content/ directory
+    let contentCount = 0;
+    if (fs.existsSync(newsVault)) {
+      const contentFiles = collectFiles(newsVault).map(f => ({
+        full: f.full,
+        relative: ".content/" + f.relative,
+      }));
+      if (contentFiles.length > 0) {
+        switch (server.type) {
+          case "sftp": await uploadSFTP(server, contentFiles); break;
+          case "ftp": case "ftps": await uploadFTP(server, contentFiles); break;
+          case "s3": await uploadS3(server, contentFiles); break;
+        }
+        contentCount = contentFiles.length;
+      }
+    }
+
+    let details = `${files.length} files deployed`;
+    if (contentCount) details += `, ${contentCount} content files synced`;
+    details += ` to ${server.name}`;
     if (server.type === "s3") {
       const invalidationId = await invalidateCloudFront(server);
       if (invalidationId) {
@@ -285,6 +313,38 @@ serverRouter.post("/:id/deploy", async (req, res) => {
     }
 
     res.json({ success: true, ms: Date.now() - start, details });
+  } catch (err) {
+    const detail = err.code ? `[${err.code}] ${err.message}` : err.message;
+    res.json({ success: false, ms: Date.now() - start, details: detail });
+  }
+});
+
+serverRouter.post("/:id/pull", async (req, res) => {
+  const servers = getServers(req.session);
+  const server = servers.find(s => s.id === req.params.id);
+  if (!server) return res.status(404).json({ error: "Server not found" });
+
+  const newsVault = getNewsVault();
+  const start = Date.now();
+
+  try {
+    let count;
+    switch (server.type) {
+      case "sftp":
+        count = await pullSFTP(server, newsVault);
+        break;
+      case "ftp":
+      case "ftps":
+        count = await pullFTP(server, newsVault);
+        break;
+      case "s3":
+        count = await pullS3(server, newsVault);
+        break;
+      default:
+        throw new Error("Unsupported type");
+    }
+
+    res.json({ success: true, ms: Date.now() - start, details: `${count} content files pulled from ${server.name}` });
   } catch (err) {
     const detail = err.code ? `[${err.code}] ${err.message}` : err.message;
     res.json({ success: false, ms: Date.now() - start, details: detail });
@@ -451,4 +511,141 @@ async function invalidateCloudFront(server) {
   }));
 
   return response.Invalidation?.Id || null;
+}
+
+async function pullSFTP(server, newsVault) {
+  const sftp = new SftpClient();
+  await sftp.connect({
+    host: server.sftpHost,
+    port: server.sftpPort || 22,
+    username: server.sftpUsername,
+    password: server.sftpPassword,
+    tryKeyboard: true,
+    authHandler: ["password", "keyboard-interactive"],
+    readyTimeout: 10000,
+  });
+
+  const remotePath = server.sftpPath || "/";
+  const contentDir = remotePath.replace(/\/$/, "") + "/.content";
+  let count = 0;
+
+  async function downloadDir(remoteDir, localDir) {
+    const exists = await sftp.exists(remoteDir);
+    if (!exists) return;
+
+    const list = await sftp.list(remoteDir);
+    for (const item of list) {
+      const remoteFile = remoteDir + "/" + item.name;
+      const localFile = path.join(localDir, item.name);
+      if (item.type === "d") {
+        fs.mkdirSync(localFile, { recursive: true });
+        await downloadDir(remoteFile, localFile);
+      } else {
+        fs.mkdirSync(path.dirname(localFile), { recursive: true });
+        const buf = await sftp.get(remoteFile);
+        fs.writeFileSync(localFile, buf);
+        count++;
+      }
+    }
+  }
+
+  try {
+    await downloadDir(contentDir, newsVault);
+  } finally {
+    await sftp.end();
+  }
+  return count;
+}
+
+async function pullFTP(server, newsVault) {
+  const client = new ftp.Client();
+  client.ftp.verbose = false;
+  await client.access({
+    host: server.ftpHost,
+    port: server.ftpPort || 21,
+    user: server.ftpUsername,
+    password: server.ftpPassword,
+    secure: server.type === "ftps",
+  });
+
+  const remotePath = server.ftpPath || "/";
+  const contentDir = remotePath.replace(/\/$/, "") + "/.content";
+  let count = 0;
+
+  async function downloadDir(remoteDir, localDir) {
+    let list;
+    try {
+      list = await client.list(remoteDir);
+    } catch {
+      return;
+    }
+    for (const item of list) {
+      const remoteFile = remoteDir + "/" + item.name;
+      const localFile = path.join(localDir, item.name);
+      if (item.isDirectory) {
+        fs.mkdirSync(localFile, { recursive: true });
+        await downloadDir(remoteFile, localFile);
+      } else {
+        fs.mkdirSync(path.dirname(localFile), { recursive: true });
+        await client.downloadTo(localFile, remoteFile);
+        count++;
+      }
+    }
+  }
+
+  try {
+    await downloadDir(contentDir, newsVault);
+  } finally {
+    client.close();
+  }
+  return count;
+}
+
+async function pullS3(server, newsVault) {
+  const s3Config = {
+    region: server.s3Region || "us-east-1",
+    credentials: {
+      accessKeyId: server.s3AccessKey,
+      secretAccessKey: server.s3SecretKey,
+    },
+  };
+  if (server.s3Endpoint) {
+    s3Config.endpoint = server.s3Endpoint;
+    s3Config.forcePathStyle = true;
+  }
+  const s3 = new S3Client(s3Config);
+
+  const prefix = ".content/";
+  let count = 0;
+  let continuationToken;
+
+  do {
+    const params = { Bucket: server.s3Bucket, Prefix: prefix };
+    if (continuationToken) params.ContinuationToken = continuationToken;
+    const res = await s3.send(new ListObjectsV2Command(params));
+
+    for (const obj of res.Contents || []) {
+      const relative = obj.Key.slice(prefix.length);
+      if (!relative) continue;
+
+      const localFile = path.join(newsVault, relative);
+      fs.mkdirSync(path.dirname(localFile), { recursive: true });
+
+      const getRes = await s3.send(new GetObjectCommand({
+        Bucket: server.s3Bucket,
+        Key: obj.Key,
+      }));
+
+      const chunks = [];
+      for await (const chunk of getRes.Body) {
+        chunks.push(chunk);
+      }
+      fs.writeFileSync(localFile, Buffer.concat(chunks));
+      count++;
+    }
+
+    continuationToken = res.NextContinuationToken;
+  } while (continuationToken);
+
+  return count;
 }

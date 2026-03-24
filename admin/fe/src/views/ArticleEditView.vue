@@ -4,6 +4,7 @@ import { useRouter, useRoute, onBeforeRouteLeave } from 'vue-router';
 import EasyMDE from 'easymde';
 import 'easymde/dist/easymde.min.css';
 import api from '../api';
+import { useActiveServer } from '../useActiveServer';
 
 const router = useRouter();
 const route = useRoute();
@@ -26,6 +27,7 @@ function getInstallationId() {
 }
 
 const installationId = getInstallationId();
+const { activeServerId, workOffline } = useActiveServer();
 
 const articleSlug = ref('');
 const markdownInput = ref<HTMLTextAreaElement | null>(null);
@@ -159,6 +161,15 @@ async function acquireLock() {
 }
 
 onMounted(async () => {
+  // Pull latest content from server before opening editor
+  if (activeServerId.value && !workOffline.value) {
+    try {
+      await api.post(`/server/${activeServerId.value}/pull`);
+    } catch {
+      // non-blocking - continue with local content
+    }
+  }
+
   const lockOk = await acquireLock();
   if (!lockOk) return;
 
