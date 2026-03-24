@@ -37,6 +37,47 @@ Pick something strong (minimum 8 characters). You'll use it every time you open 
 
 Enter your password and click "Log In". The session lasts 30 minutes - after that you'll need to log in again.
 
+## Server connection (hosting target)
+
+You can write articles, save drafts, and preview the site locally without a server connection. But to deploy (publish to the web), you need at least one hosting target configured.
+
+Click **"⚙ Server"** in the top-right corner.
+
+If no server is set as active, a banner reminds you:
+
+![No active server warning](img/not_active_server_banner.png)
+
+### Adding a server
+
+1. Click **"+ Add Server"** (or the form appears automatically if none exist)
+2. Give it a name (e.g. "Production", "Backup")
+3. Pick the connection type:
+   - **S3** - for AWS S3, MinIO, DigitalOcean Spaces, or similar
+   - **SFTP (SSH)** - standard secure file transfer
+   - **FTPS (TLS)** - FTP with encryption
+   - **FTP** - plain FTP (not recommended - credentials sent unencrypted)
+4. Fill in the connection details (host, credentials, remote path, etc.)
+5. Click **Save**
+
+![Add server form](img/add_server.png)
+
+### Testing and deploying
+
+- **Test** - checks if the connection works. Shows success/failure with response time.
+- **Deploy** - rebuilds the public site and uploads everything to this server.
+- **Build Preview** - rebuilds locally only (no upload) so you can check at `http://127.0.0.1:4321`
+
+![Successful server test](img/server_test.png)
+
+If the test fails, you'll see what went wrong:
+
+![Failed server test](img/bad_server_test.png)
+
+You can have multiple servers configured. Select which one is "Active" with the radio button - that's the one used when you publish or toggle alerts from the dashboard.
+
+![Active server selection](img/active_server_selection.png)
+![Active server indicator in header](img/active_server_header.png)
+
 ## Writing an article
 
 1. Click **"+ New Article"** on the dashboard
@@ -82,7 +123,11 @@ The homepage can show a prominent alert banner at the top (e.g. "CRITICAL: Infra
 
 ![Alert controls on dashboard](img/alert_banner_controls.png)
 
-Click **"Activate Critical Alert"** on the dashboard to turn it on. Click again to deactivate. The change deploys immediately.
+1. Toggle the banner on or off
+2. Optionally change the banner text
+3. Click **"Deploy Critical Alert Banner Update"** to push the change live
+
+The banner won't go live until you press deploy.
 
 ![Alert banner on the public site](img/alert_banner.png)
 
@@ -98,56 +143,19 @@ When you open an article for editing, it gets locked so other editors know it's 
 
 Locks expire automatically after **30 minutes** of inactivity. They refresh every 5 minutes while you're actively editing.
 
-## Server connection (hosting target)
-
-Before you can publish, you need at least one hosting target. Click **"⚙ Server"** in the top-right corner.
-
-If no server is set as active, a banner reminds you:
-
-![No active server warning](img/not_active_server_banner.png)
-
-### Adding a server
-
-1. Click **"+ Add Server"** (or the form appears automatically if none exist)
-2. Give it a name (e.g. "Production", "Backup")
-3. Pick the connection type:
-   - **S3** - for AWS S3, MinIO, DigitalOcean Spaces, or similar
-   - **SFTP (SSH)** - standard secure file transfer
-   - **FTPS (TLS)** - FTP with encryption
-   - **FTP** - plain FTP (not recommended - credentials sent unencrypted)
-4. Fill in the connection details (host, credentials, remote path, etc.)
-5. Click **Save**
-
-![Add server form](img/add_server.png)
-
-### Testing and deploying
-
-- **Test** - checks if the connection works. Shows success/failure with response time.
-- **Deploy** - rebuilds the public site and uploads everything to this server.
-- **Build Preview** - rebuilds locally only (no upload) so you can check at `http://127.0.0.1:4321`
-
-![Successful server test](img/server_test.png)
-
-If the test fails, you'll see what went wrong:
-
-![Failed server test](img/bad_server_test.png)
-
-You can have multiple servers configured. Select which one is "Active" with the radio button - that's the one used when you publish or toggle alerts from the dashboard.
-
-![Active server selection](img/active_server_selection.png)
-![Active server indicator in header](img/active_server_header.png)
-
 ## Migrating to a new host
 
 If your current hosting goes down and you need to switch:
 
 1. Open Admin → Server Connection
-2. Click "+ Add Server" and enter the new host's credentials
-3. Test the connection
-4. Deploy
-5. Update DNS (A record or CNAME) on your domain to point to the new host
+2. Get credentials for the new host from your ops/infrastructure team
+3. Click "+ Add Server" and enter the credentials
+4. Test the connection
+5. Deploy
 
-The site is fully static, so any host that can serve files will work. The build and deploy itself usually finishes under a minute - the main time goes into setting up the new host and entering credentials.
+DNS is typically configured on the hosting target side. Coordinate with whoever manages the hosting if needed.
+
+The site is fully static, so any host that can serve files will work. The build and deploy itself usually finishes under a minute - the main time goes into getting the new credentials.
 
 ## Tips
 

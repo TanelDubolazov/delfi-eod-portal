@@ -3,6 +3,11 @@
 
 DIR="$(cd "$(dirname "$0")" && pwd)"
 
+echo "Installing dependencies..."
+cd "$DIR/admin/be" && npm install
+cd "$DIR/admin/fe" && npm install
+cd "$DIR/web" && npm install
+
 kill $(lsof -t -i:3001) 2>/dev/null
 kill $(lsof -t -i:5173) 2>/dev/null
 sleep 0.5

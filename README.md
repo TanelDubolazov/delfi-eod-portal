@@ -6,7 +6,7 @@
 
 A crisis communication portal for Delfi. If primary infrastructure (AWS, Cloudflare, etc.) goes down, EOD provides a parallel static website on a separate domain (e.g. `eod.delfi.ee`) where editors can keep publishing updates.
 
-The whole system runs off a USB stick. Plug it in, launch the start script, write articles, hit deploy. The public site is plain HTML - no backend needed to serve it.
+The whole system runs off a hardware-encrypted USB stick. Plug it in, launch the start script, write articles, hit deploy. The public site is plain HTML - no backend needed to serve it.
 
 ## How it works
 
@@ -17,36 +17,48 @@ The admin is a local Express server (port 3001) with a Vue frontend. It reads/wr
 ## Project structure
 
 ```
-delfi-eod-portal/
-├── admin/
-│   ├── be/                    # Express backend
-│   │   ├── index.js           # Server entry, session, CORS, routes
-│   │   ├── auth/              # Password hashing, encryption, session auth
-│   │   ├── data/store.js      # Article CRUD - reads/writes news-vault/
-│   │   ├── routes/            # articles, images, alert, server connection
-│   │   └── utils/             # Soft locks (remote), slugify, markdown
-│   └── fe/                    # Vue 3 + TypeScript frontend
-│       └── src/
-│           ├── views/         # Dashboard, ArticleEdit, Login, ServerConnection
-│           └── components/    # NavBar, DeployErrorBanner
-├── web/                       # Astro static site (public portal)
-│   └── src/
-│       ├── pages/             # index, [slug], contact
-│       ├── components/        # Header, Footer, AlertBanner
-│       └── content.config.ts  # Reads news-vault/ markdown
-├── news-vault/                # Article content (markdown + images per folder)
-├── scripts/
-│   ├── build-runtime.mjs      # Builds USB-portable runtimes for 3 OS targets
-│   └── runtime/               # Start scripts (start.bat, start.sh, start.command)
-├── binaries/                  # Cached portable Node.js archives
-├── usb-runtime/               # Built runtime output (win-x64, macos-arm64, linux-x64)
-├── dev.sh                     # Dev launcher - starts BE + FE together
-└── .admin/                    # Created at runtime - password hash, encrypted credentials
-```
+.
+├── admin
+│   ├── be                 # Express backend
+│   │   ├── auth           # Password hashing, encryption, session auth
+│   │   ├── data           # Article CRUD - reads/writes news-vault/
+│   │   ├── routes         # articles, images, alert, server connection
+│   │   └── utils          # Soft locks (remote), slugify, markdown
+│   └── fe                 # Vue 3 + TypeScript frontend
+│       ├── public
+│       └── src
+├── binaries               # Cached portable Node.js archives
+├── img                    # README / manual screenshots
+├── scripts
+│   └── runtime            # Start scripts (start.bat, start.sh, start.command)
+├── usb-runtime            # Built runtime output
+│   ├── linux-x64
+│   ├── macos-arm64
+│   └── win-x64
+└── web                    # Astro static site (public portal)
+    ├── public
+    │   └── fonts
+    └── src
+        ├── components     # Header, Footer, AlertBanner
+        ├── layouts
+        ├── pages          # index, [slug], contact
+        └── styles
+``` 
+
+Not shown: `news-vault/` (article content, created at runtime), `.admin/` (password hash + encrypted credentials, created on first login), `dev.sh` (dev launcher).
 
 ## Developer setup
 
-Requirements: Node.js ≥ 18 (developed on v24).
+Requirements: Node.js v24+
+
+**Option A - dev.sh (installs deps + starts both servers):**
+
+```bash
+chmod +x dev.sh    # first time only
+./dev.sh
+```
+
+**Option B - manual:**
 
 ```bash
 # Install deps
@@ -55,8 +67,11 @@ cd ../fe && npm install
 cd ../../web && npm install
 cd ..
 
-# Run admin (backend + frontend)
-./dev.sh
+# Start backend
+cd admin/be && npm run dev
+
+# Start frontend (separate terminal)
+cd admin/fe && npm run dev
 ```
 
 This starts:
@@ -89,6 +104,8 @@ This downloads portable Node.js binaries (with checksum verification), installs 
 
 ### Copying to USB
 
+The USB drive must be formatted as **exFAT** - it's the only filesystem that works across Windows, macOS, and Linux out of the box.
+
 If you know which OS the USB will be used on, copy just that folder to the drive. For a universal USB that works on any machine, copy all three - the user picks the appropriate folder.
 
 Each runtime is self-contained: portable Node binary, pre-installed dependencies, built frontend, built public site. No internet or pre-installed Node required on the target machine.
@@ -112,7 +129,7 @@ Each server can be tested and deployed to independently from the Server Connecti
 
 ## Security
 
-**Admin is local-only.** It binds to `127.0.0.1` - not publicly accessible, no routes exposed to the internet. This is by design: the admin runs entirely off the USB stick, nothing is installed or written to the host machine.
+**Admin is local-only.** It binds to `127.0.0.1` - not publicly accessible, no routes exposed to the internet. This is by design: the admin runs entirely off the USB stick, nothing is installed or written to the host machine. Since admin is never network-exposed, brute-force and rate limiting are unnecessary - there is no remote attack surface.
 
 **Password handling:**
 - Admin password is hashed with bcrypt (cost 12). The plaintext is never stored.
@@ -131,9 +148,18 @@ Each server can be tested and deployed to independently from the Server Connecti
 - CSRF protection via custom header on state-changing requests.
 - In-memory session store - all sessions disappear when the USB server stops.
 
+**Input handling:**
+- Article content is markdown rendered at build time by Astro - no user input is rendered at runtime, so XSS via the public site is not possible.
+- Admin input is only accepted from the local authenticated session.
+
 **Public site:**
 - Static HTML/CSS/JS/images. No secrets, no backend, no API calls.
+- No runtime code execution on the server side - nothing to inject into.
 - Fully CDN-compatible (Cloudflare, CloudFront, Akamai, etc.).
+
+**Caching:**
+- Astro hashes asset filenames (CSS, JS) automatically - files in `_astro/` are served with `immutable` cache headers.
+- HTML pages use `max-age=0, s-maxage=60, stale-while-revalidate=300` so updates propagate quickly while CDN edges still serve stale content during rebuilds.
 
 ## Content handling
 
@@ -157,7 +183,7 @@ The admin writes to `news-vault/` directly. The Astro site reads from it via a g
 - Title, lead text, lead image, body (markdown with EasyMDE editor), author, publish date
 - Image upload with auto-resize (sharp) - both lead image and inline body images
 - Publish / unpublish with automatic deploy
-- Critical alert banner toggle (deploys immediately)
+- Critical alert banner - toggle on/off, optionally change the text, then deploy with a button press
 - Draft state tracking - shows "Published + Changes Pending" when edits haven't been deployed yet
 
 ![Alert banner on the public site](img/alert_banner.png)
@@ -165,9 +191,10 @@ The admin writes to `news-vault/` directly. The Astro site reads from it via a g
 ## Migration under one hour
 
 1. Have the USB runtime ready
-2. Set up a new hosting target (S3 bucket, FTP server, etc.)
+2. Get credentials for a new hosting target from your ops/infrastructure team (or set one up yourself if you manage infra)
 3. In admin: Server Connection → Add Server → enter credentials → Test → Deploy
-4. Point DNS (A record or CNAME) for the crisis domain to the new host
+
+DNS configuration is typically handled on the hosting target side (e.g. bucket policy, domain settings in the hosting panel).
 
 The bottleneck is step 2 - the actual build and deploy has never taken more than two minutes in our testing and usually finishes under one (S3 deploys average 20-30 seconds). The site is static, so any hosting that serves files will work. No database, no runtime, no backend dependencies on the public side.
 
