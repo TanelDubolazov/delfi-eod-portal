@@ -242,12 +242,12 @@ serverRouter.post("/:id/deploy", async (req, res) => {
   const start = Date.now();
 
   try {
-    // Pull latest content from server before building
+    // Pull new content from server before building (skip files that exist locally)
     const newsVault = getNewsVault();
     switch (server.type) {
-      case "sftp": await pullSFTP(server, newsVault); break;
-      case "ftp": case "ftps": await pullFTP(server, newsVault); break;
-      case "s3": await pullS3(server, newsVault); break;
+      case "sftp": await pullSFTP(server, newsVault, true); break;
+      case "ftp": case "ftps": await pullFTP(server, newsVault, true); break;
+      case "s3": await pullS3(server, newsVault, true); break;
     }
 
     ensureWebBuildInputs(webDir);
@@ -513,7 +513,7 @@ async function invalidateCloudFront(server) {
   return response.Invalidation?.Id || null;
 }
 
-async function pullSFTP(server, newsVault) {
+async function pullSFTP(server, newsVault, skipExisting = false) {
   const sftp = new SftpClient();
   await sftp.connect({
     host: server.sftpHost,
@@ -541,6 +541,7 @@ async function pullSFTP(server, newsVault) {
         fs.mkdirSync(localFile, { recursive: true });
         await downloadDir(remoteFile, localFile);
       } else {
+        if (skipExisting && fs.existsSync(localFile)) continue;
         fs.mkdirSync(path.dirname(localFile), { recursive: true });
         const buf = await sftp.get(remoteFile);
         fs.writeFileSync(localFile, buf);
@@ -557,7 +558,7 @@ async function pullSFTP(server, newsVault) {
   return count;
 }
 
-async function pullFTP(server, newsVault) {
+async function pullFTP(server, newsVault, skipExisting = false) {
   const client = new ftp.Client();
   client.ftp.verbose = false;
   await client.access({
@@ -586,6 +587,7 @@ async function pullFTP(server, newsVault) {
         fs.mkdirSync(localFile, { recursive: true });
         await downloadDir(remoteFile, localFile);
       } else {
+        if (skipExisting && fs.existsSync(localFile)) continue;
         fs.mkdirSync(path.dirname(localFile), { recursive: true });
         await client.downloadTo(localFile, remoteFile);
         count++;
@@ -601,7 +603,7 @@ async function pullFTP(server, newsVault) {
   return count;
 }
 
-async function pullS3(server, newsVault) {
+async function pullS3(server, newsVault, skipExisting = false) {
   const s3Config = {
     region: server.s3Region || "us-east-1",
     credentials: {
@@ -629,6 +631,7 @@ async function pullS3(server, newsVault) {
       if (!relative) continue;
 
       const localFile = path.join(newsVault, relative);
+      if (skipExisting && fs.existsSync(localFile)) continue;
       fs.mkdirSync(path.dirname(localFile), { recursive: true });
 
       const getRes = await s3.send(new GetObjectCommand({
