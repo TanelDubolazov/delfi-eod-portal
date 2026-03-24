@@ -1,6 +1,5 @@
 ---
-import { SITE_TITLE } from '../consts';
-import { ALERT } from '../consts';
+import { SITE_TITLE, ALERT } from '../consts';
 import HeaderLink from './HeaderLink.astro';
 import SocialLinks from './SocialLinks.astro';
 import AlertBanner from './AlertBanner.astro';
@@ -28,20 +27,17 @@ import AlertBanner from './AlertBanner.astro';
 	}
 	nav {
 		padding: 0 1em;
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
 	}
 	h2 {
 		margin: 0;
 		font-size: 1em;
 	}
 
-	h2 a,
-	h2 a.active {
+	h2 a {
 		text-decoration: none;
-	}
-	nav {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
 	}
 	nav a {
 		padding: 1em 0.5em;
@@ -50,7 +46,6 @@ import AlertBanner from './AlertBanner.astro';
 		text-decoration: none;
 	}
 	nav a.active {
-		text-decoration: none;
 		border-bottom-color: var(--accent);
 	}
 	.social-links {
