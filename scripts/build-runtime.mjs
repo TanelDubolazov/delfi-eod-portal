@@ -199,6 +199,32 @@ async function makeExecutable(filePath) {
   await fs.chmod(filePath, 0o755);
 }
 
+async function validateRuntimeLayout(target, runtimeRoot) {
+  const nodeExecutable = target.os === 'win32'
+    ? path.join(runtimeRoot, 'node', 'node.exe')
+    : path.join(runtimeRoot, 'node', 'bin', 'node');
+
+  const requiredPaths = [
+    nodeExecutable,
+    path.join(runtimeRoot, path.basename(target.launcher)),
+    path.join(runtimeRoot, 'admin', 'be', 'index.js'),
+    path.join(runtimeRoot, 'admin', 'be', 'node_modules'),
+    path.join(runtimeRoot, 'admin', 'fe', 'dist', 'index.html'),
+    path.join(runtimeRoot, 'web', 'dist', 'index.html'),
+    path.join(runtimeRoot, 'web', 'src'),
+    path.join(runtimeRoot, 'web', 'public'),
+    path.join(runtimeRoot, 'web', 'node_modules'),
+    path.join(runtimeRoot, 'scripts', 'runtime', 'site-server.mjs'),
+    path.join(runtimeRoot, 'news-vault'),
+  ];
+
+  for (const requiredPath of requiredPaths) {
+    if (!(await fileExists(requiredPath))) {
+      throw new Error(`Runtime validation failed for ${target.id}: missing ${requiredPath}`);
+    }
+  }
+}
+
 async function buildAdminFrontend() {
   console.log('\nBuilding admin frontend dist...');
   const feDir = path.join(rootDir, 'admin', 'fe');
@@ -235,6 +261,7 @@ async function prepareTargetRuntime(target) {
   await fs.copyFile(path.join(rootDir, 'web', 'astro.config.mjs'), path.join(runtimeRoot, 'web', 'astro.config.mjs'));
   await fs.copyFile(path.join(rootDir, 'web', 'tsconfig.json'), path.join(runtimeRoot, 'web', 'tsconfig.json'));
   await copyDir(path.join(rootDir, 'web', 'src'), path.join(runtimeRoot, 'web', 'src'));
+  await copyDir(path.join(rootDir, 'web', 'public'), path.join(runtimeRoot, 'web', 'public'));
 
   await copyDir(path.join(rootDir, 'admin', 'fe', 'dist'), path.join(runtimeRoot, 'admin', 'fe', 'dist'));
   await copyDir(path.join(rootDir, 'web', 'dist'), path.join(runtimeRoot, 'web', 'dist'));
@@ -269,6 +296,8 @@ async function prepareTargetRuntime(target) {
     ['ci', '--omit=dev', '--include=optional', '--os', target.os, '--cpu', target.cpu],
     path.join(runtimeRoot, 'web'),
   );
+
+  await validateRuntimeLayout(target, runtimeRoot);
 
   console.log(`Done: usb-runtime/${target.id}`);
 }
