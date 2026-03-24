@@ -312,11 +312,7 @@ onUnmounted(() => {
           @click="deployAlertUpdate"
           :disabled="alertDeploying || alertSaving"
         >
-          {{
-            alertDeploying
-              ? "Deploying..."
-              : "Deploy Critical Alert Banner Update"
-          }}
+          {{ alertDeploying ? "Deploying..." : "Deploy Critical Alert Banner Update" }}
         </button>
       </div>
     </div>

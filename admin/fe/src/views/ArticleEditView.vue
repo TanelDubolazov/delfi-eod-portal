@@ -30,13 +30,6 @@ const installationId = getInstallationId();
 const articleSlug = ref('');
 const markdownInput = ref<HTMLTextAreaElement | null>(null);
 const markdownEditor = ref<EasyMDE | null>(null);
-const articleImageInsertCursor = ref<{ line: number; ch: number } | null>(null);
-
-function rememberArticleImageInsertPoint() {
-  const cm = markdownEditor.value?.codemirror;
-  if (!cm) return;
-  articleImageInsertCursor.value = cm.getDoc().getCursor();
-}
 
 function toDatetimeLocalValue(value: string) {
   const date = new Date(value);
@@ -286,24 +279,12 @@ async function uploadImage(event: Event, context: 'lead' | 'article') {
     if (context === 'lead') {
       form.value.leadImage = `http://127.0.0.1:3001${data.url}`;
     } else {
-      const cm = markdownEditor.value?.codemirror;
-      const altText = file.name.replace(/\.[^.]+$/, '');
-      const markdownImage = `![${altText}](http://127.0.0.1:3001${data.url})`;
-      if (cm) {
-        const doc = cm.getDoc();
-        const insertAt = articleImageInsertCursor.value || doc.getCursor();
-        doc.replaceRange(markdownImage, insertAt, insertAt);
-        const altStart = { line: insertAt.line, ch: insertAt.ch + 2 };
-        const altEnd = { line: insertAt.line, ch: altStart.ch + altText.length };
-        doc.setSelection(altStart, altEnd);
-        cm.focus();
-      }
+      const markdownImage = `\n![${file.name.replace(/\.[^.]+$/, '')}](http://127.0.0.1:3001${data.url})\n`;
+      markdownEditor.value?.codemirror.replaceSelection(markdownImage);
       form.value.body = markdownEditor.value?.value() || form.value.body;
     }
   } catch {
     error.value = 'Image upload failed';
-  } finally {
-    input.value = '';
   }
 }
 </script>
@@ -374,7 +355,7 @@ async function uploadImage(event: Event, context: 'lead' | 'article') {
       <div class="form-group">
         <label>Body</label>
         <div class="md-toolbar">
-          <label class="toolbar-btn" title="Insert Image" @click="rememberArticleImageInsertPoint">
+          <label class="toolbar-btn" title="Insert Image">
             📷 Image
             <input type="file" accept="image/*" @change="uploadImage($event, 'article')" hidden />
           </label>
