@@ -56,9 +56,11 @@ const { title, description, pubDate, updatedDate, heroImage, heroImageAlt } = As
 		<Header />
 		<main>
 			<article>
-				<div class="hero-image">
-					{heroImage && <Image width={960} height={480} src={heroImage} alt={heroImageAlt ?? title} />}
-				</div>
+				{heroImage && (
+					<div class="hero-image">
+						<Image width={960} height={480} src={heroImage} alt={heroImageAlt ?? title} />
+					</div>
+				)}
 				<div class="prose">
 					<div class="title">
 						<div class="date">

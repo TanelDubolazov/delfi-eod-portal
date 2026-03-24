@@ -1,4 +1,5 @@
 import fs from 'fs/promises';
+import { createWriteStream, createReadStream } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { spawnSync } from 'child_process';
@@ -68,25 +69,31 @@ function downloadFile(url, destinationPath) {
             return;
           }
 
-          const chunks = [];
-          res.on('data', (chunk) => chunks.push(chunk));
-          res.on('end', async () => {
+          const fileStream = createWriteStream(tmpPath);
+          res.pipe(fileStream);
+          fileStream.on('finish', async () => {
             try {
-              await fs.writeFile(tmpPath, Buffer.concat(chunks));
               await fs.rename(tmpPath, destinationPath);
               resolve();
             } catch (error) {
               reject(error);
             }
           });
+          fileStream.on('error', reject);
+          res.on('error', reject);
         }).on('error', reject);
       });
   });
 }
 
-async function sha256File(filePath) {
-  const content = await fs.readFile(filePath);
-  return createHash('sha256').update(content).digest('hex');
+function sha256File(filePath) {
+  return new Promise((resolve, reject) => {
+    const hash = createHash('sha256');
+    const stream = createReadStream(filePath);
+    stream.on('data', (chunk) => hash.update(chunk));
+    stream.on('end', () => resolve(hash.digest('hex')));
+    stream.on('error', reject);
+  });
 }
 
 function parseShasums(rawText) {
@@ -150,10 +157,13 @@ async function ensureNodeArchives() {
   }
 }
 
+const isWindows = process.platform === 'win32';
+
 function run(command, args, cwd, env = {}) {
   const result = spawnSync(command, args, {
     cwd,
     stdio: 'inherit',
+    shell: isWindows,
     env: { ...process.env, ...env },
   });
   if (result.status !== 0) {
@@ -179,7 +189,23 @@ async function extractNodeArchive(archivePath, targetNodeDir) {
   await fs.mkdir(tempDir, { recursive: true });
 
   if (archivePath.endsWith('.zip')) {
-    run('unzip', ['-q', archivePath, '-d', tempDir], rootDir);
+    if (isWindows) {
+      run('powershell', ['-NoProfile', '-Command', `Expand-Archive -Path '${archivePath}' -DestinationPath '${tempDir}'`], rootDir);
+    } else {
+      run('unzip', ['-q', archivePath, '-d', tempDir], rootDir);
+    }
+  } else if (isWindows) {
+    // On Windows, tar cannot create Unix symlinks so we ignore errors.
+    spawnSync('tar', ['-xf', archivePath, '-C', tempDir], {
+      cwd: rootDir,
+      stdio: 'inherit',
+      shell: true,
+      env: process.env,
+    });
+    const entries = await fs.readdir(tempDir).catch(() => []);
+    if (entries.length === 0) {
+      throw new Error(`tar extraction produced no output for ${archivePath}`);
+    }
   } else {
     run('tar', ['-xf', archivePath, '-C', tempDir], rootDir);
   }
@@ -191,12 +217,42 @@ async function extractNodeArchive(archivePath, targetNodeDir) {
   }
 
   await fs.mkdir(path.dirname(targetNodeDir), { recursive: true });
-  await fs.rename(path.join(tempDir, firstDir.name), targetNodeDir);
+  try {
+    await fs.rename(path.join(tempDir, firstDir.name), targetNodeDir);
+  } catch {
+    await fs.cp(path.join(tempDir, firstDir.name), targetNodeDir, { recursive: true });
+  }
   await fs.rm(tempDir, { recursive: true, force: true });
 }
 
 async function makeExecutable(filePath) {
   await fs.chmod(filePath, 0o755);
+}
+
+async function validateRuntimeLayout(target, runtimeRoot) {
+  const nodeExecutable = target.os === 'win32'
+    ? path.join(runtimeRoot, 'node', 'node.exe')
+    : path.join(runtimeRoot, 'node', 'bin', 'node');
+
+  const requiredPaths = [
+    nodeExecutable,
+    path.join(runtimeRoot, path.basename(target.launcher)),
+    path.join(runtimeRoot, 'admin', 'be', 'index.js'),
+    path.join(runtimeRoot, 'admin', 'be', 'node_modules'),
+    path.join(runtimeRoot, 'admin', 'fe', 'dist', 'index.html'),
+    path.join(runtimeRoot, 'web', 'dist', 'index.html'),
+    path.join(runtimeRoot, 'web', 'src'),
+    path.join(runtimeRoot, 'web', 'public'),
+    path.join(runtimeRoot, 'web', 'node_modules'),
+    path.join(runtimeRoot, 'scripts', 'runtime', 'site-server.mjs'),
+    path.join(runtimeRoot, 'news-vault'),
+  ];
+
+  for (const requiredPath of requiredPaths) {
+    if (!(await fileExists(requiredPath))) {
+      throw new Error(`Runtime validation failed for ${target.id}: missing ${requiredPath}`);
+    }
+  }
 }
 
 async function buildAdminFrontend() {
@@ -235,6 +291,7 @@ async function prepareTargetRuntime(target) {
   await fs.copyFile(path.join(rootDir, 'web', 'astro.config.mjs'), path.join(runtimeRoot, 'web', 'astro.config.mjs'));
   await fs.copyFile(path.join(rootDir, 'web', 'tsconfig.json'), path.join(runtimeRoot, 'web', 'tsconfig.json'));
   await copyDir(path.join(rootDir, 'web', 'src'), path.join(runtimeRoot, 'web', 'src'));
+  await copyDir(path.join(rootDir, 'web', 'public'), path.join(runtimeRoot, 'web', 'public'));
 
   await copyDir(path.join(rootDir, 'admin', 'fe', 'dist'), path.join(runtimeRoot, 'admin', 'fe', 'dist'));
   await copyDir(path.join(rootDir, 'web', 'dist'), path.join(runtimeRoot, 'web', 'dist'));
@@ -269,6 +326,8 @@ async function prepareTargetRuntime(target) {
     ['ci', '--omit=dev', '--include=optional', '--os', target.os, '--cpu', target.cpu],
     path.join(runtimeRoot, 'web'),
   );
+
+  await validateRuntimeLayout(target, runtimeRoot);
 
   console.log(`Done: usb-runtime/${target.id}`);
 }
