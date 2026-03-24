@@ -5,9 +5,42 @@ import path from "path";
 import SftpClient from "ssh2-sftp-client";
 import * as ftp from "basic-ftp";
 import { S3Client, HeadBucketCommand, PutObjectCommand } from "@aws-sdk/client-s3";
+import { CloudFrontClient, CreateInvalidationCommand } from "@aws-sdk/client-cloudfront";
 import { updateCredentials } from "../auth/crypto.js";
 
 export const serverRouter = Router();
+
+function resolveAstroCliPath(webDir) {
+  const candidates = [
+    path.join(webDir, "node_modules", "astro", "astro.js"),
+    path.join(webDir, "node_modules", "astro", "dist", "cli", "index.js"),
+  ];
+  return candidates.find(candidate => fs.existsSync(candidate)) || null;
+}
+
+function runAstroBuild(webDir) {
+  const astroCli = resolveAstroCliPath(webDir);
+  if (!astroCli) {
+    throw new Error("Missing Astro CLI in runtime web/node_modules. Rebuild runtime package.");
+  }
+
+  const command = `\"${process.execPath}\" \"${astroCli}\" build`;
+  const env = { ...process.env, NODE_ENV: "production" };
+
+  execSync(command, { cwd: webDir, stdio: "pipe", shell: true, env });
+}
+
+function ensureWebBuildInputs(webDir) {
+  const webPackagePath = path.join(webDir, "package.json");
+  const webNodeModulesPath = path.join(webDir, "node_modules");
+
+  if (!fs.existsSync(webPackagePath)) {
+    throw new Error(`Missing web/package.json in runtime at ${webPackagePath}`);
+  }
+  if (!fs.existsSync(webNodeModulesPath)) {
+    throw new Error("Missing web/node_modules in runtime. Rebuild runtime package.");
+  }
+}
 
 let idSeq = 1;
 function genId() {
@@ -74,6 +107,7 @@ serverRouter.put("/", (req, res) => {
       s3Endpoint: fields.s3Endpoint, s3Bucket: fields.s3Bucket,
       s3AccessKey: fields.s3AccessKey, s3SecretKey: fields.s3SecretKey,
       s3Region: fields.s3Region || "",
+      s3CloudFrontDistributionId: fields.s3CloudFrontDistributionId || "",
     });
   } else if (type === "sftp") {
     Object.assign(server, {
@@ -207,9 +241,8 @@ serverRouter.post("/:id/deploy", async (req, res) => {
   const start = Date.now();
 
   try {
-    // install deps if needed, then build
-    execSync("npm install", { cwd: webDir, stdio: "pipe", shell: true });
-    execSync("npm run build", { cwd: webDir, stdio: "pipe", shell: true });
+    ensureWebBuildInputs(webDir);
+    runAstroBuild(webDir);
 
     // collect all files in dist/ recursively
     function collectFiles(dir, base = dir) {
@@ -243,7 +276,49 @@ serverRouter.post("/:id/deploy", async (req, res) => {
         throw new Error("Unsupported type");
     }
 
-    res.json({ success: true, ms: Date.now() - start, details: `${files.length} files deployed to ${server.name}` });
+    let details = `${files.length} files deployed to ${server.name}`;
+    if (server.type === "s3") {
+      const invalidationId = await invalidateCloudFront(server);
+      if (invalidationId) {
+        details += `; CloudFront invalidation started (${invalidationId})`;
+      }
+    }
+
+    res.json({ success: true, ms: Date.now() - start, details });
+  } catch (err) {
+    const detail = err.code ? `[${err.code}] ${err.message}` : err.message;
+    res.json({ success: false, ms: Date.now() - start, details: detail });
+  }
+});
+
+serverRouter.post("/:id/build", async (req, res) => {
+  const servers = getServers(req.session);
+  const server = servers.find(s => s.id === req.params.id);
+  if (!server) return res.status(404).json({ error: "Server not found" });
+
+  const baseDir = req.app.get("BASE_DIR");
+  const webDir = path.join(baseDir, "web");
+  const start = Date.now();
+
+  try {
+    ensureWebBuildInputs(webDir);
+    runAstroBuild(webDir);
+    res.json({ success: true, ms: Date.now() - start, details: "Preview build complete" });
+  } catch (err) {
+    const detail = err.code ? `[${err.code}] ${err.message}` : err.message;
+    res.json({ success: false, ms: Date.now() - start, details: detail });
+  }
+});
+
+serverRouter.post("/build-preview", async (req, res) => {
+  const baseDir = req.app.get("BASE_DIR");
+  const webDir = path.join(baseDir, "web");
+  const start = Date.now();
+
+  try {
+    ensureWebBuildInputs(webDir);
+    runAstroBuild(webDir);
+    res.json({ success: true, ms: Date.now() - start, details: "Preview build complete" });
   } catch (err) {
     const detail = err.code ? `[${err.code}] ${err.message}` : err.message;
     res.json({ success: false, ms: Date.now() - start, details: detail });
@@ -268,6 +343,15 @@ const CONTENT_TYPES = {
   ".ico": "image/x-icon",
   ".txt": "text/plain",
 };
+
+function getCacheControlForUpload(relativePath) {
+  const normalized = relativePath.replace(/\\/g, "/");
+  const ext = path.extname(normalized).toLowerCase();
+
+  if (ext === ".html") return "public, max-age=0, s-maxage=60, stale-while-revalidate=300";
+  if (normalized.startsWith("_astro/")) return "public, max-age=31536000, immutable";
+  return "public, max-age=3600";
+}
 
 async function uploadSFTP(server, files) {
   const sftp = new SftpClient();
@@ -331,11 +415,40 @@ async function uploadS3(server, files) {
     const key = relative.replace(/\\/g, "/");
     const body = fs.readFileSync(full);
     const ext = path.extname(full).toLowerCase();
+    const cacheControl = getCacheControlForUpload(relative);
     await s3.send(new PutObjectCommand({
       Bucket: server.s3Bucket,
       Key: key,
       Body: body,
       ContentType: CONTENT_TYPES[ext] || "application/octet-stream",
+      CacheControl: cacheControl,
     }));
   }
+}
+
+async function invalidateCloudFront(server) {
+  const distributionId = (server.s3CloudFrontDistributionId || "").trim();
+  if (!distributionId) return null;
+
+  const client = new CloudFrontClient({
+    region: "us-east-1",
+    credentials: {
+      accessKeyId: server.s3AccessKey,
+      secretAccessKey: server.s3SecretKey,
+    },
+  });
+
+  const callerReference = `deploy-${Date.now()}`;
+  const response = await client.send(new CreateInvalidationCommand({
+    DistributionId: distributionId,
+    InvalidationBatch: {
+      CallerReference: callerReference,
+      Paths: {
+        Quantity: 3,
+        Items: ["/", "/index.html", "/news/*"],
+      },
+    },
+  }));
+
+  return response.Invalidation?.Id || null;
 }

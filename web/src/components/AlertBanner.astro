@@ -3,22 +3,69 @@ const { message, active } = Astro.props;
 ---
 
 {active && (
-  <div class="alert-banner">
-    ⚠️ {message}
-  </div>
+  <aside class="alert-banner" role="status" aria-live="polite">
+    <div class="alert-banner-inner">
+      <span class="alert-icon" aria-hidden="true">⚠</span>
+      <strong class="alert-label">Critical alert</strong>
+      <span class="alert-separator" aria-hidden="true">|</span>
+      <span class="alert-message">{message}</span>
+    </div>
+  </aside>
 )}
 
 <style>
 .alert-banner {
   width: 100%;
-  background: white;
-  color: #b42318;
-  border-top: 3px solid #b42318;
-  border-bottom: 3px solid #b42318;
-  padding: 14px;
+  background: linear-gradient(90deg, #7a0f0f 0%, #9f1f1f 48%, #7a0f0f 100%);
+  color: #fff6f4;
+  border-top: 1px solid rgba(58, 5, 5, 0.5);
+  border-bottom: 1px solid rgba(58, 5, 5, 0.5);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.15), inset 0 -1px 0 rgba(0, 0, 0, 0.2);
+}
+
+.alert-banner-inner {
+  width: min(960px, calc(100% - 2em));
+  margin: 0 auto;
+  min-height: 46px;
+  padding: 10px 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
   text-align: center;
-  letter-spacing: 0.3px;
-  font-weight: bold;
-  font-size: 18px;
+  font-size: 0.95rem;
+  line-height: 1.35;
+}
+
+.alert-icon {
+  font-size: 1.05rem;
+}
+
+.alert-label {
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+.alert-separator {
+  opacity: 0.55;
+}
+
+.alert-message {
+  font-weight: 600;
+}
+
+@media (max-width: 720px) {
+  .alert-banner-inner {
+    width: calc(100% - 1em);
+    gap: 0.45rem;
+    min-height: 40px;
+    font-size: 0.86rem;
+  }
+
+  .alert-separator {
+    display: none;
+  }
 }
 </style>

@@ -1,9 +1,69 @@
 <script setup lang="ts">
+import { ref, onMounted, watch } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import api from '../api';
+import { useActiveServer } from '../useActiveServer';
 
 const router = useRouter();
 const route = useRoute();
+const previewBuilding = ref(false);
+const currentServerName = ref('No active server');
+const { deployError, activeServerId, workOffline } = useActiveServer();
+
+async function fetchCurrentServerName() {
+  if (workOffline.value) {
+    currentServerName.value = 'Offline mode';
+    return;
+  }
+
+  if (!activeServerId.value) {
+    currentServerName.value = 'No active server';
+    return;
+  }
+
+  try {
+    const { data } = await api.get('/server');
+    const active = (Array.isArray(data) ? data : []).find((server: any) => server.id === activeServerId.value);
+    currentServerName.value = active?.name || 'No active server';
+  } catch {
+    currentServerName.value = 'No active server';
+  }
+}
+
+async function buildPreview() {
+  if (previewBuilding.value) return;
+  const previewWindow = window.open('', '_blank');
+  previewBuilding.value = true;
+  try {
+    const { data } = await api.post('/server/build-preview');
+    if (data.success) {
+      if (previewWindow) {
+        previewWindow.location.href = 'http://127.0.0.1:4321';
+        previewWindow.focus();
+      } else {
+        window.open('http://127.0.0.1:4321', '_blank');
+      }
+    } else {
+      if (previewWindow) previewWindow.close();
+      deployError.value = {
+        action: 'building preview',
+        code: data.details || 'Build failed',
+        type: 'build',
+        reversed: false,
+      };
+    }
+  } catch (err: any) {
+    if (previewWindow) previewWindow.close();
+    deployError.value = {
+      action: 'building preview',
+      code: err.response?.data?.error || err.message || 'Build failed',
+      type: 'build',
+      reversed: false,
+    };
+  } finally {
+    previewBuilding.value = false;
+  }
+}
 
 async function logout() {
   try {
@@ -18,17 +78,33 @@ function toggleServer() {
   if (route.path === '/server') router.back();
   else router.push('/server');
 }
+
+watch([activeServerId, workOffline], () => {
+  void fetchCurrentServerName();
+});
+
+onMounted(() => {
+  void fetchCurrentServerName();
+});
 </script>
 
 <template>
-  <nav class="navbar" v-if="route.name !== 'Login'">
+  <nav class="navbar" v-if="route.name && route.name !== 'Login'">
     <div class="navbar-inner">
       <router-link to="/" class="navbar-brand">
         <img src="/delfi.png" alt="Delfi" class="brand-logo" />
-        EOD Admin
+        <span class="brand-text">EOD Admin</span>
       </router-link>
       <div class="navbar-actions">
+        <button
+          class="preview-btn"
+          @click="buildPreview"
+          :disabled="previewBuilding"
+        >
+          {{ previewBuilding ? 'Building Preview...' : 'Build Preview' }}
+        </button>
         <button class="nav-link server-link" @click="toggleServer">⚙ Server</button>
+        <span class="current-server">Current server: {{ currentServerName }}</span>
         <button class="btn-secondary btn-sm" @click="logout">Log Out</button>
       </div>
     </div>
@@ -46,8 +122,7 @@ function toggleServer() {
 }
 
 .navbar-inner {
-  max-width: 1200px;
-  margin: 0 auto;
+  width: 100%;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -67,6 +142,10 @@ function toggleServer() {
 .brand-logo {
   height: 28px;
   width: auto;
+}
+
+.brand-text {
+  display: inline;
 }
 
 .navbar-actions {
@@ -100,6 +179,29 @@ function toggleServer() {
   color: var(--surface);
 }
 
+.current-server {
+  font-size: 13px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.preview-btn {
+  border: none;
+  color: var(--surface);
+  font-size: 13px;
+  padding: 6px 14px;
+  background: #4b5563;
+  border-radius: var(--radius);
+}
+
+.preview-btn:hover {
+  background: #374151;
+}
+
+.preview-btn:disabled {
+  opacity: 0.6;
+}
+
 .user-name {
   color: var(--text-secondary);
   font-size: 14px;
@@ -108,5 +210,17 @@ function toggleServer() {
 .btn-sm {
   padding: 6px 14px;
   font-size: 13px;
+}
+
+@media (max-width: 980px) {
+  .current-server {
+    display: none;
+  }
+}
+
+@media (max-width: 720px) {
+  .brand-text {
+    display: none;
+  }
 }
 </style>

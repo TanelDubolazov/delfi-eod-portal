@@ -1,15 +1,15 @@
 // Place any global data in this file.
 // You can import this data from anywhere in your site by using the `import` keyword.
 
-export const SITE_TITLE = "Crisis Portal";
+export const SITE_TITLE = "Delfi Crisis Portal";
 export const SITE_DESCRIPTION = "Emergency Operation Delfi";
 export const ALERT = {
-  active: false,
-  message: "Critical alert: Crisis information updated",
+  active: true,
+  message: "THIS IS NOT A REAL NEWS PORTAL! IT IS FOR DEMONSTRATION PURPOSES ONLY!",
 };
 
 export const FOOTER_COPYRIGHT_TEXT =
-  "Emergency Operation Delfi. All rights reserved.";
+  "Emergency Operation Delfi. THIS IS NOT A REAL NEWS PORTAL. IT IS FOR DEMONSTRATION PURPOSES ONLY.";
 
 export const DATE_LOCALE = "et-EE";
 export const DATE_FORMAT_OPTIONS: Intl.DateTimeFormatOptions = {
