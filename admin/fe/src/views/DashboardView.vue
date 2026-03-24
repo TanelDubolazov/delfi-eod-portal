@@ -1,19 +1,10 @@
 <script setup lang="ts">
-<<<<<<< HEAD
-import { ref, onMounted, onUnmounted } from 'vue';
-import { useRouter } from 'vue-router';
-import api from '../api';
-import { useActiveServer } from '../useActiveServer';
-import { useDeploy } from '../useDeploy';
-import DeployErrorBanner from '../components/DeployErrorBanner.vue';
-=======
 import { ref, onMounted, onUnmounted } from "vue";
 import { useRouter } from "vue-router";
 import api from "../api";
 import { useActiveServer } from "../useActiveServer";
 import { useDeploy } from "../useDeploy";
 import DeployErrorBanner from "../components/DeployErrorBanner.vue";
->>>>>>> origin/main
 
 const router = useRouter();
 const { deployError, activeServerId } = useActiveServer();
@@ -321,7 +312,11 @@ onUnmounted(() => {
           @click="deployAlertUpdate"
           :disabled="alertDeploying || alertSaving"
         >
-          {{ alertDeploying ? "Deploying..." : "Deploy Critical Alert Banner Update" }}
+          {{
+            alertDeploying
+              ? "Deploying..."
+              : "Deploy Critical Alert Banner Update"
+          }}
         </button>
       </div>
     </div>
