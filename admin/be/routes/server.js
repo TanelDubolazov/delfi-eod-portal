@@ -4,7 +4,7 @@ import fs from "fs";
 import path from "path";
 import SftpClient from "ssh2-sftp-client";
 import * as ftp from "basic-ftp";
-import { S3Client, HeadBucketCommand, PutObjectCommand, GetObjectCommand, ListObjectsV2Command } from "@aws-sdk/client-s3";
+import { S3Client, HeadBucketCommand, PutObjectCommand, GetObjectCommand, ListObjectsV2Command, DeleteObjectsCommand } from "@aws-sdk/client-s3";
 import { CloudFrontClient, CreateInvalidationCommand } from "@aws-sdk/client-cloudfront";
 import { updateCredentials } from "../auth/crypto.js";
 import { getNewsVault } from "../data/store.js";
@@ -242,12 +242,13 @@ serverRouter.post("/:id/deploy", async (req, res) => {
   const start = Date.now();
 
   try {
-    // Pull new content from server before building (skip files that exist locally)
+    // Pull new content from server before building (skip the article being acted on)
     const newsVault = getNewsVault();
+    const excludeSlug = req.body.excludeSlug || null;
     switch (server.type) {
-      case "sftp": await pullSFTP(server, newsVault, true); break;
-      case "ftp": case "ftps": await pullFTP(server, newsVault, true); break;
-      case "s3": await pullS3(server, newsVault, true); break;
+      case "sftp": await pullSFTP(server, newsVault, excludeSlug); break;
+      case "ftp": case "ftps": await pullFTP(server, newsVault, excludeSlug); break;
+      case "s3": await pullS3(server, newsVault, excludeSlug); break;
     }
 
     ensureWebBuildInputs(webDir);
@@ -317,6 +318,28 @@ serverRouter.post("/:id/deploy", async (req, res) => {
     const detail = err.code ? `[${err.code}] ${err.message}` : err.message;
     res.json({ success: false, ms: Date.now() - start, details: detail });
   }
+});
+
+serverRouter.post("/sync-delete/:slug", async (req, res) => {
+  const slug = req.params.slug;
+  if (!slug || slug.includes("..")) return res.status(400).json({ error: "Invalid slug" });
+
+  const servers = getServers(req.session);
+  const errors = [];
+
+  for (const server of servers) {
+    try {
+      switch (server.type) {
+        case "sftp": await deleteRemoteSFTP(server, slug); break;
+        case "ftp": case "ftps": await deleteRemoteFTP(server, slug); break;
+        case "s3": await deleteRemoteS3(server, slug); break;
+      }
+    } catch (err) {
+      errors.push({ server: server.name, error: err.message });
+    }
+  }
+
+  res.json({ success: errors.length === 0, errors });
 });
 
 serverRouter.post("/:id/pull", async (req, res) => {
@@ -513,7 +536,7 @@ async function invalidateCloudFront(server) {
   return response.Invalidation?.Id || null;
 }
 
-async function pullSFTP(server, newsVault, skipExisting = false) {
+async function pullSFTP(server, newsVault, excludeSlug = null) {
   const sftp = new SftpClient();
   await sftp.connect({
     host: server.sftpHost,
@@ -529,19 +552,19 @@ async function pullSFTP(server, newsVault, skipExisting = false) {
   const contentDir = remotePath.replace(/\/$/, "") + "/.content";
   let count = 0;
 
-  async function downloadDir(remoteDir, localDir) {
+  async function downloadDir(remoteDir, localDir, depth = 0) {
     const exists = await sftp.exists(remoteDir);
     if (!exists) return;
 
     const list = await sftp.list(remoteDir);
     for (const item of list) {
+      if (depth === 0 && item.type === "d" && excludeSlug && item.name === excludeSlug) continue;
       const remoteFile = remoteDir + "/" + item.name;
       const localFile = path.join(localDir, item.name);
       if (item.type === "d") {
         fs.mkdirSync(localFile, { recursive: true });
-        await downloadDir(remoteFile, localFile);
+        await downloadDir(remoteFile, localFile, depth + 1);
       } else {
-        if (skipExisting && fs.existsSync(localFile)) continue;
         fs.mkdirSync(path.dirname(localFile), { recursive: true });
         const buf = await sftp.get(remoteFile);
         fs.writeFileSync(localFile, buf);
@@ -558,7 +581,7 @@ async function pullSFTP(server, newsVault, skipExisting = false) {
   return count;
 }
 
-async function pullFTP(server, newsVault, skipExisting = false) {
+async function pullFTP(server, newsVault, excludeSlug = null) {
   const client = new ftp.Client();
   client.ftp.verbose = false;
   await client.access({
@@ -573,7 +596,7 @@ async function pullFTP(server, newsVault, skipExisting = false) {
   const contentDir = remotePath.replace(/\/$/, "") + "/.content";
   let count = 0;
 
-  async function downloadDir(remoteDir, localDir) {
+  async function downloadDir(remoteDir, localDir, depth = 0) {
     let list;
     try {
       list = await client.list(remoteDir);
@@ -581,13 +604,13 @@ async function pullFTP(server, newsVault, skipExisting = false) {
       return;
     }
     for (const item of list) {
+      if (depth === 0 && item.isDirectory && excludeSlug && item.name === excludeSlug) continue;
       const remoteFile = remoteDir + "/" + item.name;
       const localFile = path.join(localDir, item.name);
       if (item.isDirectory) {
         fs.mkdirSync(localFile, { recursive: true });
-        await downloadDir(remoteFile, localFile);
+        await downloadDir(remoteFile, localFile, depth + 1);
       } else {
-        if (skipExisting && fs.existsSync(localFile)) continue;
         fs.mkdirSync(path.dirname(localFile), { recursive: true });
         await client.downloadTo(localFile, remoteFile);
         count++;
@@ -603,7 +626,7 @@ async function pullFTP(server, newsVault, skipExisting = false) {
   return count;
 }
 
-async function pullS3(server, newsVault, skipExisting = false) {
+async function pullS3(server, newsVault, excludeSlug = null) {
   const s3Config = {
     region: server.s3Region || "us-east-1",
     credentials: {
@@ -629,9 +652,9 @@ async function pullS3(server, newsVault, skipExisting = false) {
     for (const obj of res.Contents || []) {
       const relative = obj.Key.slice(prefix.length);
       if (!relative) continue;
+      if (excludeSlug && relative.startsWith(excludeSlug + "/")) continue;
 
       const localFile = path.join(newsVault, relative);
-      if (skipExisting && fs.existsSync(localFile)) continue;
       fs.mkdirSync(path.dirname(localFile), { recursive: true });
 
       const getRes = await s3.send(new GetObjectCommand({
@@ -651,4 +674,79 @@ async function pullS3(server, newsVault, skipExisting = false) {
   } while (continuationToken);
 
   return count;
+}
+
+async function deleteRemoteSFTP(server, slug) {
+  const sftp = new SftpClient();
+  await sftp.connect({
+    host: server.sftpHost,
+    port: server.sftpPort || 22,
+    username: server.sftpUsername,
+    password: server.sftpPassword,
+    tryKeyboard: true,
+    authHandler: ["password", "keyboard-interactive"],
+    readyTimeout: 10000,
+  });
+
+  const remotePath = (server.sftpPath || "/").replace(/\/$/, "");
+  const remoteDir = `${remotePath}/.content/${slug}`;
+
+  try {
+    const exists = await sftp.exists(remoteDir);
+    if (exists) await sftp.rmdir(remoteDir, true);
+  } finally {
+    await sftp.end();
+  }
+}
+
+async function deleteRemoteFTP(server, slug) {
+  const client = new ftp.Client();
+  client.ftp.verbose = false;
+  await client.access({
+    host: server.ftpHost,
+    port: server.ftpPort || 21,
+    user: server.ftpUsername,
+    password: server.ftpPassword,
+    secure: server.type === "ftps",
+  });
+
+  const remotePath = (server.ftpPath || "/").replace(/\/$/, "");
+  const remoteDir = `${remotePath}/.content/${slug}`;
+
+  try {
+    await client.removeDir(remoteDir);
+  } catch {
+    // directory may not exist
+  } finally {
+    client.close();
+  }
+}
+
+async function deleteRemoteS3(server, slug) {
+  const s3Config = {
+    region: server.s3Region || "us-east-1",
+    credentials: {
+      accessKeyId: server.s3AccessKey,
+      secretAccessKey: server.s3SecretKey,
+    },
+  };
+  if (server.s3Endpoint) {
+    s3Config.endpoint = server.s3Endpoint;
+    s3Config.forcePathStyle = true;
+  }
+  const s3 = new S3Client(s3Config);
+
+  const prefix = `.content/${slug}/`;
+  const listRes = await s3.send(new ListObjectsV2Command({
+    Bucket: server.s3Bucket,
+    Prefix: prefix,
+  }));
+
+  const objects = (listRes.Contents || []).map(obj => ({ Key: obj.Key }));
+  if (objects.length === 0) return;
+
+  await s3.send(new DeleteObjectsCommand({
+    Bucket: server.s3Bucket,
+    Delete: { Objects: objects },
+  }));
 }

@@ -32,13 +32,13 @@ export function useDeploy() {
     }
   }
 
-  async function triggerDeploy(): Promise<DeployOutcome> {
+  async function triggerDeploy(excludeSlug?: string): Promise<DeployOutcome> {
     const id = activeServerId.value;
     if (!id) return { ok: true };
     deployError.value = null;
     showToast('deploying', 'Building and deploying...');
     try {
-      const { data } = await api.post(`/server/${id}/deploy`);
+      const { data } = await api.post(`/server/${id}/deploy`, excludeSlug ? { excludeSlug } : {});
       if (data.success) {
         showToast('success', `Deployed in ${(data.ms / 1000).toFixed(1)}s`);
         return { ok: true };
