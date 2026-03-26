@@ -159,6 +159,10 @@ async function ensureNodeArchives() {
 
 const isWindows = process.platform === 'win32';
 
+function toForwardSlashes(filePath) {
+  return filePath.split(path.sep).join('/');
+}
+
 function run(command, args, cwd, env = {}) {
   const result = spawnSync(command, args, {
     cwd,
@@ -196,10 +200,12 @@ async function extractNodeArchive(archivePath, targetNodeDir) {
     }
   } else if (isWindows) {
     // On Windows, tar cannot create Unix symlinks so we ignore errors.
-    spawnSync('tar', ['-xf', archivePath, '-C', tempDir], {
+    const archiveRelativePath = toForwardSlashes(path.relative(rootDir, archivePath));
+    const tempRelativePath = toForwardSlashes(path.relative(rootDir, tempDir));
+    spawnSync('tar', ['-xf', archiveRelativePath, '-C', tempRelativePath], {
       cwd: rootDir,
       stdio: 'inherit',
-      shell: true,
+      shell: false,
       env: process.env,
     });
     const entries = await fs.readdir(tempDir).catch(() => []);
