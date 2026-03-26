@@ -229,6 +229,61 @@ async function makeExecutable(filePath) {
   await fs.chmod(filePath, 0o755);
 }
 
+function getSharpPlatformPackages(target) {
+  if (target.os === 'darwin' && target.cpu === 'arm64') {
+    return ['@img/sharp-darwin-arm64', '@img/sharp-libvips-darwin-arm64'];
+  }
+
+  if (target.os === 'win32' && target.cpu === 'x64') {
+    return ['@img/sharp-win32-x64'];
+  }
+
+  if (target.os === 'linux' && target.cpu === 'x64') {
+    return ['@img/sharp-linux-x64', '@img/sharp-libvips-linux-x64'];
+  }
+
+  return [];
+}
+
+function packageDirForScopedDependency(nodeModulesDir, packageName) {
+  const [scope, name] = packageName.split('/');
+  return path.join(nodeModulesDir, scope, name);
+}
+
+function enforceSharpPlatformPackages(target, projectDir) {
+  if (getSharpPlatformPackages(target).length === 0) return;
+
+  run(
+    'npm',
+    [
+      'install',
+      '--no-save',
+      '--include=optional',
+      '--os',
+      target.os,
+      '--cpu',
+      target.cpu,
+      'sharp',
+    ],
+    projectDir,
+  );
+}
+
+async function validateSharpPlatformPackages(target, projectDir) {
+  const sharpPackages = getSharpPlatformPackages(target);
+  if (sharpPackages.length === 0) return;
+
+  const nodeModulesDir = path.join(projectDir, 'node_modules');
+  for (const pkg of sharpPackages) {
+    const pkgDir = packageDirForScopedDependency(nodeModulesDir, pkg);
+    if (!(await fileExists(pkgDir))) {
+      throw new Error(
+        `Missing required sharp runtime package for ${target.id}: ${pkg} in ${projectDir}`,
+      );
+    }
+  }
+}
+
 async function validateRuntimeLayout(target, runtimeRoot) {
   const nodeExecutable = target.os === 'win32'
     ? path.join(runtimeRoot, 'node', 'node.exe')
@@ -314,18 +369,16 @@ async function prepareTargetRuntime(target) {
   }
 
   console.log(`Installing backend dependencies for ${target.id}...`);
-  run(
-    'npm',
-    ['ci', '--omit=dev', '--include=optional', '--os', target.os, '--cpu', target.cpu],
-    path.join(runtimeRoot, 'admin', 'be'),
-  );
+  const adminBeDir = path.join(runtimeRoot, 'admin', 'be');
+  run('npm', ['ci', '--omit=dev', '--include=optional', '--os', target.os, '--cpu', target.cpu], adminBeDir);
+  enforceSharpPlatformPackages(target, adminBeDir);
+  await validateSharpPlatformPackages(target, adminBeDir);
 
   console.log(`Installing web dependencies for ${target.id}...`);
-  run(
-    'npm',
-    ['ci', '--omit=dev', '--include=optional', '--os', target.os, '--cpu', target.cpu],
-    path.join(runtimeRoot, 'web'),
-  );
+  const webDir = path.join(runtimeRoot, 'web');
+  run('npm', ['ci', '--omit=dev', '--include=optional', '--os', target.os, '--cpu', target.cpu], webDir);
+  enforceSharpPlatformPackages(target, webDir);
+  await validateSharpPlatformPackages(target, webDir);
 
   await validateRuntimeLayout(target, runtimeRoot);
 
