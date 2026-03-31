@@ -200,8 +200,11 @@ async function togglePublish(article: any) {
     ? `/articles/${article.id}/unpublish`
     : `/articles/${article.id}/publish`;
   await api.post(endpoint);
+  if (article.slug) {
+    await api.post(`/server/sync-delete/${article.slug}`).catch(() => {});
+  }
   await fetchArticles();
-  const result = await triggerDeploy();
+  const result = await triggerDeploy(article.slug);
   if (!result.ok) {
     await api.post(
       wasPublished
@@ -223,9 +226,11 @@ async function deleteArticle(article: any) {
   if (!confirm(`Delete "${article.title}"?`)) return;
   busyArticles.value[article.id] = "Deleting...";
   try {
+    const slug = article.slug;
     await api.delete(`/articles/${article.id}`);
+    if (slug) await api.post(`/server/sync-delete/${slug}`).catch(() => {});
     await fetchArticles();
-    const result = await triggerDeploy();
+    const result = await triggerDeploy(slug);
     if (!result.ok) {
       deployError.value = {
         action: `deleting "${article.title}"`,
